@@ -34,7 +34,7 @@ assert.match(plugin.description, /GLM/i);
 assert.match(plugin.version, /^\d+\.\d+\.\d+$/);
 
 const marketplace = readJson('.claude-plugin/marketplace.json');
-assert.strictEqual(marketplace.name, 'glm-statusline-marketplace');
+assert.strictEqual(marketplace.name, 'bingqiangzhou-tools');
 assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.source === './'));
 
 assertFile('bin/glm-statusline.js');

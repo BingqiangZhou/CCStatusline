@@ -23,7 +23,7 @@ For marketplace-style installation from this local repository:
 
 ```text
 /plugin marketplace add /Users/bingqiangzhou/Workspaces/Projects/CCStatusline
-/plugin install glm-statusline@glm-statusline-marketplace
+/plugin install glm-statusline@bingqiangzhou-tools
 /glm-statusline:install
 ```
 

@@ -50,7 +50,7 @@ claude --plugin-dir .
 
 ```text
 /plugin marketplace add /Users/bingqiangzhou/Workspaces/Projects/CCStatusline
-/plugin install glm-statusline@glm-statusline-marketplace
+/plugin install glm-statusline@bingqiangzhou-tools
 /glm-statusline:install
 ```
 
