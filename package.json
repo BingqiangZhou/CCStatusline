@@ -1,0 +1,14 @@
+{
+  "name": "glm-statusline",
+  "version": "1.0.0",
+  "description": "Claude Code plugin packaging for a GLM status line script.",
+  "private": true,
+  "scripts": {
+    "test": "node scripts/verify.js",
+    "statusline": "node bin/glm-statusline.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

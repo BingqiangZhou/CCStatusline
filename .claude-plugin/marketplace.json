@@ -1,0 +1,27 @@
+{
+  "name": "glm-statusline-marketplace",
+  "owner": {
+    "name": "CCStatusline"
+  },
+  "description": "Local marketplace for the GLM StatusLine Claude Code plugin.",
+  "version": "1.0.0",
+  "plugins": [
+    {
+      "name": "glm-statusline",
+      "displayName": "GLM StatusLine",
+      "source": "./",
+      "description": "Shows GLM Coding Plan quota, MCP usage, context usage, and token totals in the Claude Code status line.",
+      "version": "1.0.0",
+      "author": {
+        "name": "CCStatusline"
+      },
+      "category": "interface",
+      "tags": [
+        "statusline",
+        "glm",
+        "z-ai",
+        "quota"
+      ]
+    }
+  ]
+}

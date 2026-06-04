@@ -1,0 +1,664 @@
+#!/usr/bin/env node
+/**
+ * glm-statusline.js
+ *
+ * A single-file Claude Code statusLine script for GLM Coding Plan.
+ *
+ * Output:
+ *   GLM Lite │ 5H ██░░░░░░ 22% │ MCP ███░░░░░ 28% │ Context █████░░░ 68% (GLM-5 / 200K)
+ *   14:47 ｜ Sess:160.0K │ Day:42.8M │ Mon:979.2M
+ *
+ * Usage in ~/.claude/settings.json:
+ * {
+ *   "env": {
+ *     "ANTHROPIC_AUTH_TOKEN": "your-token",
+ *     "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+ *     "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.1",
+ *     "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.1",
+ *     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-4.5-air"
+ *   },
+ *   "statusLine": {
+ *     "type": "command",
+ *     "command": "node ~/.claude/glm-statusline.js",
+ *     "refreshInterval": 5,
+ *     "padding": 0
+ *   }
+ * }
+ */
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const https = require('https');
+const http = require('http');
+const { URL } = require('url');
+
+const HOME = os.homedir();
+const CACHE_FILE = path.join(HOME, '.claude', 'glm-statusline-cache.json');
+const DEFAULT_CONTEXT_WINDOW = 200000;
+const API_TIMEOUT_MS = Number(process.env.GLM_STATUSLINE_TIMEOUT_MS || 2200);
+const CACHE_TTL_MS = Number(process.env.GLM_STATUSLINE_CACHE_TTL_MS || 60_000);
+const BAR_WIDTH = Number(process.env.GLM_STATUSLINE_BAR_WIDTH || 8);
+
+const PLAN_KEYS = [
+  'planName',
+  'packageName',
+  'packageTitle',
+  'subscriptionName',
+  'productName',
+  'levelName',
+  'plan',
+  'package',
+  'level',
+  'tier',
+  'skuName',
+  'sku',
+  'edition',
+];
+
+function expandHome(input) {
+  if (!input || typeof input !== 'string') return input;
+  if (input === '~') return HOME;
+  if (input.startsWith('~/')) return path.join(HOME, input.slice(2));
+  return input;
+}
+
+function readJsonFile(filePath) {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return null;
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+function mergeEnvFromSettings(sessionContext) {
+  const currentDir =
+    sessionContext?.workspace?.current_dir ||
+    sessionContext?.cwd ||
+    process.cwd();
+
+  const files = [
+    path.join(HOME, '.claude', 'settings.json'),
+    path.join(currentDir, '.claude', 'settings.json'),
+    path.join(currentDir, '.claude', 'settings.local.json'),
+  ];
+
+  const merged = {};
+  for (const file of files) {
+    const json = readJsonFile(file);
+    if (json && json.env && typeof json.env === 'object') {
+      Object.assign(merged, json.env);
+    }
+  }
+
+  return { ...merged, ...process.env };
+}
+
+function normalizeBaseRoot(baseUrl) {
+  try {
+    const u = new URL(baseUrl);
+    return `${u.protocol}//${u.host}`;
+  } catch (_) {
+    return '';
+  }
+}
+
+function httpJson(url, authToken) {
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch (err) {
+      reject(err);
+      return;
+    }
+
+    const lib = parsed.protocol === 'http:' ? http : https;
+    const req = lib.request(
+      parsed,
+      {
+        method: 'GET',
+        timeout: API_TIMEOUT_MS,
+        headers: {
+          Authorization: authToken || '',
+          'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'glm-statusline/1.0',
+        },
+      },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => (body += chunk));
+        res.on('end', () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`HTTP ${res.statusCode}: ${body.slice(0, 160)}`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(body));
+          } catch (err) {
+            reject(new Error(`Invalid JSON: ${err.message}`));
+          }
+        });
+      }
+    );
+
+    req.on('timeout', () => req.destroy(new Error('Request timeout')));
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function loadCache() {
+  const cache = readJsonFile(CACHE_FILE);
+  return cache && typeof cache === 'object' ? cache : {};
+}
+
+function saveCache(cache) {
+  try {
+    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+  } catch (_) {
+    // Ignore cache write errors; statusLine should never break Claude Code.
+  }
+}
+
+function isFresh(entry, ttl = CACHE_TTL_MS) {
+  return entry && typeof entry.ts === 'number' && Date.now() - entry.ts < ttl;
+}
+
+function recursiveFindStringByKeys(obj, keys, depth = 0) {
+  if (!obj || depth > 7) return '';
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const found = recursiveFindStringByKeys(item, keys, depth + 1);
+      if (found) return found;
+    }
+    return '';
+  }
+  if (typeof obj !== 'object') return '';
+
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+
+  for (const value of Object.values(obj)) {
+    const found = recursiveFindStringByKeys(value, keys, depth + 1);
+    if (found) return found;
+  }
+  return '';
+}
+
+function normalizePlanName(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  if (/^glm\s+/i.test(value)) return value.replace(/^glm/i, 'GLM');
+  if (/lite/i.test(value)) return 'GLM Lite';
+  if (/pro/i.test(value)) return 'GLM Pro';
+  if (/standard|std/i.test(value)) return 'GLM Standard';
+  if (/plus/i.test(value)) return 'GLM Plus';
+  if (/free/i.test(value)) return 'GLM Free';
+  return value.length <= 18 ? `GLM ${titleCase(value)}` : value;
+}
+
+function titleCase(input) {
+  return String(input)
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function readPercent(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  const directKeys = [
+    'percentage',
+    'percent',
+    'usagePercentage',
+    'usedPercentage',
+    'usedPercent',
+    'usagePercent',
+    'rate',
+    'ratio',
+  ];
+  for (const key of directKeys) {
+    const value = Number(obj[key]);
+    if (Number.isFinite(value)) {
+      return clampPercent(value <= 1 && key.toLowerCase().includes('ratio') ? value * 100 : value);
+    }
+  }
+
+  const used = Number(obj.used ?? obj.usage ?? obj.current ?? obj.consumed ?? obj.usedValue);
+  const total = Number(obj.total ?? obj.limit ?? obj.max ?? obj.quota ?? obj.limitValue);
+  if (Number.isFinite(used) && Number.isFinite(total) && total > 0) {
+    return clampPercent((used / total) * 100);
+  }
+
+  return null;
+}
+
+function clampPercent(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function classifyLimit(limit) {
+  const text = JSON.stringify({
+    type: limit.type,
+    limitType: limit.limitType,
+    quotaType: limit.quotaType,
+    name: limit.name,
+    title: limit.title,
+    code: limit.code,
+    key: limit.key,
+  }).toUpperCase();
+
+  if (/MCP|TOOL|TOOLS|TIME_LIMIT|TIME/.test(text)) return 'mcp';
+  if (/5H|FIVE|TOKEN|TOKENS|TOKENS_LIMIT|MODEL/.test(text)) return 'fiveHour';
+  return '';
+}
+
+function extractQuotaData(json) {
+  const planRaw = recursiveFindStringByKeys(json, PLAN_KEYS);
+  const result = {
+    planName: normalizePlanName(planRaw),
+    fiveHourPercent: null,
+    mcpPercent: null,
+  };
+
+  const candidates = [];
+  collectObjects(json, candidates, 0);
+
+  for (const item of candidates) {
+    const kind = classifyLimit(item);
+    if (!kind) continue;
+    const percent = readPercent(item);
+    if (percent === null) continue;
+    if (kind === 'fiveHour' && result.fiveHourPercent === null) {
+      result.fiveHourPercent = percent;
+    }
+    if (kind === 'mcp' && result.mcpPercent === null) {
+      result.mcpPercent = percent;
+    }
+  }
+
+  return result;
+}
+
+function collectObjects(obj, out, depth) {
+  if (!obj || depth > 8) return;
+  if (Array.isArray(obj)) {
+    for (const item of obj) collectObjects(item, out, depth + 1);
+    return;
+  }
+  if (typeof obj !== 'object') return;
+  out.push(obj);
+  for (const value of Object.values(obj)) collectObjects(value, out, depth + 1);
+}
+
+async function fetchQuota(env) {
+  const baseRoot = normalizeBaseRoot(env.ANTHROPIC_BASE_URL || '');
+  const authToken = env.ANTHROPIC_AUTH_TOKEN || '';
+  const fallbackPlan = normalizePlanName(env.GLM_STATUSLINE_PLAN || '');
+  const fallback = {
+    planName: fallbackPlan || 'GLM',
+    fiveHourPercent: null,
+    mcpPercent: null,
+  };
+
+  if (!baseRoot || !authToken) return fallback;
+
+  const cache = loadCache();
+  const cacheKey = `quota:${baseRoot}`;
+  if (isFresh(cache[cacheKey])) {
+    return { ...fallback, ...cache[cacheKey].value };
+  }
+
+  try {
+    const json = await httpJson(`${baseRoot}/api/monitor/usage/quota/limit`, authToken);
+    const value = extractQuotaData(json);
+    if (!value.planName) value.planName = fallback.planName;
+    cache[cacheKey] = { ts: Date.now(), value };
+    saveCache(cache);
+    return { ...fallback, ...value };
+  } catch (_) {
+    if (cache[cacheKey]?.value) return { ...fallback, ...cache[cacheKey].value };
+    return fallback;
+  }
+}
+
+function getClaudeModelRaw(sessionContext) {
+  const model = sessionContext?.model;
+  if (typeof model === 'string') return model;
+  return (
+    model?.display_name ||
+    model?.displayName ||
+    model?.name ||
+    model?.id ||
+    sessionContext?.model_display_name ||
+    sessionContext?.model_id ||
+    ''
+  );
+}
+
+function mapClaudeModelToGlm(sessionContext, env) {
+  const raw = String(getClaudeModelRaw(sessionContext) || '').trim();
+  const upper = raw.toUpperCase();
+
+  let mapped = '';
+  if (/OPUS/.test(upper)) mapped = env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+  else if (/SONNET/.test(upper)) mapped = env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+  else if (/HAIKU/.test(upper)) mapped = env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+  else if (/GLM/.test(upper)) mapped = raw;
+
+  mapped = mapped || env.ANTHROPIC_DEFAULT_SONNET_MODEL || env.GLM_STATUSLINE_MODEL || raw || 'GLM';
+  return beautifyModelName(mapped);
+}
+
+function beautifyModelName(input) {
+  let value = String(input || '').trim();
+  if (!value) return 'GLM';
+  value = value.replace(/^anthropic\//i, '');
+  value = value.replace(/^zai\//i, '');
+  value = value.replace(/^bigmodel\//i, '');
+  if (/^glm/i.test(value)) {
+    return value
+      .replace(/^glm/i, 'GLM')
+      .replace(/-air$/i, '-Air')
+      .replace(/-flash$/i, '-Flash')
+      .replace(/-plus$/i, '-Plus')
+      .replace(/-thinking$/i, '-Thinking');
+  }
+  return value;
+}
+
+function getContextInfo(sessionContext, sessionTokens, env) {
+  const cw =
+    sessionContext?.context_window ||
+    sessionContext?.contextWindow ||
+    sessionContext?.context ||
+    {};
+
+  const max = Number(
+    cw.context_window_size ??
+      cw.contextWindowSize ??
+      cw.max_tokens ??
+      cw.maxTokens ??
+      cw.total_tokens ??
+      cw.totalTokens ??
+      env.GLM_STATUSLINE_CONTEXT_WINDOW ??
+      DEFAULT_CONTEXT_WINDOW
+  );
+
+  let percent = Number(
+    cw.used_percentage ??
+      cw.usedPercentage ??
+      cw.percentage ??
+      cw.percent ??
+      cw.usage_percentage ??
+      cw.usagePercentage
+  );
+
+  const used = Number(cw.used_tokens ?? cw.usedTokens ?? cw.current_tokens ?? cw.currentTokens);
+  if (!Number.isFinite(percent) && Number.isFinite(used) && Number.isFinite(max) && max > 0) {
+    percent = (used / max) * 100;
+  }
+  if (!Number.isFinite(percent) && Number.isFinite(sessionTokens) && Number.isFinite(max) && max > 0) {
+    // Fallback only. Session tokens are not identical to live context tokens, but this is better than blank.
+    percent = (sessionTokens / max) * 100;
+  }
+
+  return {
+    percent: clampPercent(Number.isFinite(percent) ? percent : 0),
+    max: Number.isFinite(max) && max > 0 ? max : DEFAULT_CONTEXT_WINDOW,
+  };
+}
+
+function tokenTotalFromUsage(usage) {
+  if (!usage || typeof usage !== 'object') return 0;
+  const keys = [
+    'input_tokens',
+    'output_tokens',
+    'cache_creation_input_tokens',
+    'cache_read_input_tokens',
+    'inputTokens',
+    'outputTokens',
+    'cacheCreationInputTokens',
+    'cacheReadInputTokens',
+  ];
+  let total = 0;
+  for (const key of keys) {
+    const value = Number(usage[key]);
+    if (Number.isFinite(value) && value > 0) total += value;
+  }
+  return total;
+}
+
+function tokenTotalFromObject(obj) {
+  if (!obj || typeof obj !== 'object') return 0;
+  let total = 0;
+  if (obj.usage && typeof obj.usage === 'object') total += tokenTotalFromUsage(obj.usage);
+  if (obj.message?.usage && typeof obj.message.usage === 'object') total += tokenTotalFromUsage(obj.message.usage);
+  if (obj.response?.usage && typeof obj.response.usage === 'object') total += tokenTotalFromUsage(obj.response.usage);
+  return total;
+}
+
+function lineTimestamp(obj, fallbackMs) {
+  const raw = obj?.timestamp || obj?.created_at || obj?.createdAt || obj?.message?.timestamp;
+  const ms = raw ? new Date(raw).getTime() : NaN;
+  return Number.isFinite(ms) ? ms : fallbackMs;
+}
+
+function readJsonlTokenStats(filePath, options = {}) {
+  const { startMs = -Infinity, endMs = Infinity } = options;
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return 0;
+    const stat = fs.statSync(filePath);
+    const content = fs.readFileSync(filePath, 'utf8');
+    let total = 0;
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const obj = JSON.parse(line);
+        const ts = lineTimestamp(obj, stat.mtimeMs);
+        if (ts < startMs || ts >= endMs) continue;
+        total += tokenTotalFromObject(obj);
+      } catch (_) {
+        // Ignore malformed jsonl lines.
+      }
+    }
+    return total;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function walkJsonlFiles(dir, out = [], depth = 0) {
+  if (!dir || depth > 8) return out;
+  try {
+    if (!fs.existsSync(dir)) return out;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walkJsonlFiles(full, out, depth + 1);
+      } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+        out.push(full);
+      }
+    }
+  } catch (_) {
+    // Ignore unreadable directories.
+  }
+  return out;
+}
+
+function startOfLocalDay(d = new Date()) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+function scanLocalUsage() {
+  const projectsDir = path.join(HOME, '.claude', 'projects');
+  const files = walkJsonlFiles(projectsDir);
+  const now = Date.now();
+  const dayStart = startOfLocalDay(new Date());
+  const monthStart = now - 30 * 24 * 60 * 60 * 1000;
+  let day = 0;
+  let month = 0;
+
+  for (const file of files) {
+    let stat;
+    try {
+      stat = fs.statSync(file);
+    } catch (_) {
+      continue;
+    }
+    if (stat.mtimeMs >= dayStart) day += readJsonlTokenStats(file, { startMs: dayStart, endMs: now + 1 });
+    if (stat.mtimeMs >= monthStart) month += readJsonlTokenStats(file, { startMs: monthStart, endMs: now + 1 });
+  }
+
+  return { day, month };
+}
+
+function extractTokenSumFromModelUsage(json) {
+  const objects = [];
+  collectObjects(json, objects, 0);
+  let total = 0;
+  for (const obj of objects) {
+    total += tokenTotalFromUsage(obj);
+    const input = Number(obj.inputTokens ?? obj.input_tokens ?? obj.promptTokens ?? obj.prompt_tokens);
+    const output = Number(obj.outputTokens ?? obj.output_tokens ?? obj.completionTokens ?? obj.completion_tokens);
+    if (Number.isFinite(input) && input > 0) total += input;
+    if (Number.isFinite(output) && output > 0) total += output;
+  }
+  return total;
+}
+
+async function fetchModelUsage(env, period) {
+  const baseRoot = normalizeBaseRoot(env.ANTHROPIC_BASE_URL || '');
+  const authToken = env.ANTHROPIC_AUTH_TOKEN || '';
+  if (!baseRoot || !authToken) return null;
+
+  const cache = loadCache();
+  const cacheKey = `model:${baseRoot}:${period}`;
+  if (isFresh(cache[cacheKey])) return cache[cacheKey].value;
+
+  const now = new Date();
+  const endTime = now.toISOString();
+  const startDate = new Date(now.getTime());
+  if (period === 'day') {
+    startDate.setHours(0, 0, 0, 0);
+  } else {
+    startDate.setDate(startDate.getDate() - 30);
+  }
+
+  const url = `${baseRoot}/api/monitor/usage/model-usage?startTime=${encodeURIComponent(
+    startDate.toISOString()
+  )}&endTime=${encodeURIComponent(endTime)}`;
+
+  try {
+    const json = await httpJson(url, authToken);
+    const value = extractTokenSumFromModelUsage(json);
+    cache[cacheKey] = { ts: Date.now(), value };
+    saveCache(cache);
+    return value;
+  } catch (_) {
+    if (cache[cacheKey]?.value !== undefined) return cache[cacheKey].value;
+    return null;
+  }
+}
+
+function renderBar(percent, width = BAR_WIDTH) {
+  const p = clampPercent(percent);
+  const filled = Math.max(0, Math.min(width, Math.round((p / 100) * width)));
+  return `${'█'.repeat(filled)}${'░'.repeat(width - filled)} ${p}%`;
+}
+
+function formatTokens(value) {
+  const n = Number(value) || 0;
+  if (n >= 1_000_000_000) return `${trimNumber(n / 1_000_000_000)}B`;
+  if (n >= 1_000_000) return `${trimNumber(n / 1_000_000)}M`;
+  if (n >= 1_000) return `${trimNumber(n / 1_000)}K`;
+  return String(Math.round(n));
+}
+
+function trimNumber(value) {
+  const rounded = value >= 100 ? value.toFixed(0) : value.toFixed(1);
+  return rounded.replace(/\.0$/, '');
+}
+
+function formatContextMax(value) {
+  const n = Number(value) || DEFAULT_CONTEXT_WINDOW;
+  if (n >= 1_000_000) return `${trimNumber(n / 1_000_000)}M`;
+  if (n >= 1000) return `${trimNumber(n / 1000)}K`;
+  return String(Math.round(n));
+}
+
+function formatTimeHHmm(d = new Date()) {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+async function readStdinJson() {
+  let data = '';
+  try {
+    for await (const chunk of process.stdin) data += chunk;
+    return data.trim() ? JSON.parse(data) : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+async function main() {
+  const sessionContext = await readStdinJson();
+  const env = mergeEnvFromSettings(sessionContext);
+
+  const transcriptPath = expandHome(
+    sessionContext?.transcript_path || sessionContext?.transcriptPath || sessionContext?.conversation_log_path || ''
+  );
+  const sessionTokens = readJsonlTokenStats(transcriptPath);
+
+  const [quota, dayFromApi, monthFromApi] = await Promise.all([
+    fetchQuota(env),
+    env.GLM_STATUSLINE_USAGE_SOURCE === 'local' ? Promise.resolve(null) : fetchModelUsage(env, 'day'),
+    env.GLM_STATUSLINE_USAGE_SOURCE === 'local' ? Promise.resolve(null) : fetchModelUsage(env, 'month'),
+  ]);
+
+  let dayTokens = dayFromApi;
+  let monthTokens = monthFromApi;
+  if (dayTokens === null || monthTokens === null) {
+    const local = scanLocalUsage();
+    if (dayTokens === null) dayTokens = local.day;
+    if (monthTokens === null) monthTokens = local.month;
+  }
+
+  const modelName = mapClaudeModelToGlm(sessionContext, env);
+  const contextInfo = getContextInfo(sessionContext, sessionTokens, env);
+  const planName = quota.planName || normalizePlanName(env.GLM_STATUSLINE_PLAN) || 'GLM';
+  const fiveHourPercent = quota.fiveHourPercent ?? 0;
+  const mcpPercent = quota.mcpPercent ?? 0;
+
+  const line1 = `${planName} │ 5H ${renderBar(fiveHourPercent)} │ MCP ${renderBar(
+    mcpPercent
+  )} │ Context ${renderBar(contextInfo.percent)} (${modelName} / ${formatContextMax(contextInfo.max)})`;
+
+  const line2 = `${formatTimeHHmm()} ｜ Sess:${formatTokens(sessionTokens)} │ Day:${formatTokens(
+    dayTokens
+  )} │ Mon:${formatTokens(monthTokens)}`;
+
+  console.log(`${line1}\n${line2}`);
+}
+
+main().catch((err) => {
+  // Keep Claude Code usable even if the script crashes.
+  const msg = err && err.message ? err.message : String(err);
+  console.log(`GLM │ 5H ${renderBar(0)} │ MCP ${renderBar(0)} │ Context ${renderBar(0)} (GLM / 200K)\n${formatTimeHHmm()} ｜ Sess:0 │ Day:0 │ Mon:0`);
+  if (process.env.GLM_STATUSLINE_DEBUG === '1') {
+    console.error(msg);
+  }
+});

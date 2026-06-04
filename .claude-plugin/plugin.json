@@ -1,0 +1,18 @@
+{
+  "name": "glm-statusline",
+  "displayName": "GLM StatusLine",
+  "description": "Shows GLM Coding Plan quota, MCP usage, context usage, and token totals in the Claude Code status line.",
+  "version": "1.0.0",
+  "author": {
+    "name": "CCStatusline"
+  },
+  "homepage": "https://code.claude.com/docs/en/statusline",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "statusline",
+    "glm",
+    "z-ai",
+    "quota"
+  ]
+}
