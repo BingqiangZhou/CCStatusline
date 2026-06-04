@@ -4,14 +4,14 @@
     "name": "CCStatusline"
   },
   "description": "Local marketplace for the GLM StatusLine Claude Code plugin.",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "plugins": [
     {
       "name": "glm-statusline",
       "displayName": "GLM StatusLine",
       "source": "./",
       "description": "Shows compact GLM 5H quota, context usage, and session tokens in the Claude Code status line, with a plan details command.",
-      "version": "1.2.2",
+      "version": "1.2.3",
       "author": {
         "name": "CCStatusline"
       },

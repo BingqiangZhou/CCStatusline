@@ -161,13 +161,44 @@ function readStatusConfig(env = process.env) {
 
   const barWidth = Number(fileConfig.barWidth ?? env.GLM_STATUSLINE_BAR_WIDTH ?? BAR_WIDTH);
   const layout = String(fileConfig.layout || env.GLM_STATUSLINE_LAYOUT || 'compact').toLowerCase() === 'full' ? 'full' : 'compact';
+  const maxWidth = readMaxWidth(fileConfig, env);
 
   return {
     configPath,
     display,
     layout,
+    maxWidth,
     barWidth: Number.isFinite(barWidth) && barWidth > 0 ? Math.max(1, Math.min(20, Math.round(barWidth))) : BAR_WIDTH,
   };
+}
+
+function readMaxWidth(fileConfig, env) {
+  const raw = fileConfig.maxWidth ?? env.COLUMNS ?? process.stdout.columns;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.max(20, Math.round(value));
+}
+
+function displayLength(value) {
+  return Array.from(String(value || '')).length;
+}
+
+function wrapSegments(segments, maxWidth) {
+  if (!Number.isFinite(maxWidth) || maxWidth <= 0) return segments.join(' │ ');
+
+  const lines = [];
+  let current = '';
+  for (const segment of segments) {
+    const next = current ? `${current} │ ${segment}` : segment;
+    if (current && displayLength(next) > maxWidth) {
+      lines.push(current);
+      current = segment;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.join('\n');
 }
 
 function mergeEnvFromSettings(sessionContext) {
@@ -1028,7 +1059,7 @@ async function renderStatusLine(sessionContext = {}) {
   };
 
   const segments = config.display.map((item) => fields[item]).filter(Boolean);
-  return (segments.length ? segments : DEFAULT_DISPLAY.map((item) => fields[item])).join(' │ ');
+  return wrapSegments(segments.length ? segments : DEFAULT_DISPLAY.map((item) => fields[item]), config.maxWidth);
 }
 
 async function main() {

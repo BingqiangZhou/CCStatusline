@@ -117,7 +117,7 @@ glm-statusline-install.js uninstall
 - Transcript token 统计：`readJsonlTokenStats()` 解析当前会话 JSONL transcript，把 input、output、cache creation、cache read token 累加成 `Sess`。
 - Day/30D 统计：`fetchModelUsage()` 请求智谱/Z.ai `/api/monitor/usage/model-usage`，按官方 `yyyy-MM-dd HH:mm:ss` 时间格式传入当天和近 30 天窗口；这些数据会在 `/glm-statusline:plan-details` 中显示，也会在用户把 `day` 或 `30d` 加入 status line 配置时显示。
 - 5H reset：常驻状态栏显示 `5H ... @HH:mm`；优先使用 quota 接口 5H limit 的 `nextResetTime`，接口未返回时使用 quota 数据最后一次成功刷新的时间。
-- 渲染：`renderStatusLine()` 按用户选择的字段组合状态栏；`renderBar()`、`formatTokens()` 和 `formatTimeHHmm()` 负责具体格式；`renderPlanDetails()` 负责 plan details 命令输出。
+- 渲染：`renderStatusLine()` 按用户选择的字段组合状态栏，并根据当前终端宽度在字段边界自动换行；`renderBar()`、`formatTokens()` 和 `formatTimeHHmm()` 负责具体格式；`renderPlanDetails()` 负责 plan details 命令输出。
 
 最终输出形态：
 
@@ -174,6 +174,7 @@ npm test
 - `bin/`、`skills/` 和文档文件存在。
 - `bin/glm-statusline.js` 能在模拟 Claude Code stdin 下输出一行包含 `5H`、`Context`、`Session` 的状态栏。
 - `bin/glm-statusline.js` 能根据 `~/.claude/glm-statusline-config.json` 或测试指定的 config 文件切换显示字段。
+- `bin/glm-statusline.js` 能根据终端宽度在字段边界自动换行。
 - `bin/glm-statusline.js --preview` 能输出 `Preview:` 和当前配置对应的状态栏。
 - `bin/glm-statusline.js --plan-details` 能输出 plan、5H、MCP、可选 weekly、Day/30D 和 API/cache 状态。
 - `bin/glm-statusline-install.js install` 能在临时 settings 文件中写入正确 `statusLine`。

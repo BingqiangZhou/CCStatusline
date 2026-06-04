@@ -68,16 +68,16 @@ async function main() {
   const plugin = readJson('.claude-plugin/plugin.json');
   assert.strictEqual(plugin.name, 'glm-statusline');
   assert.match(plugin.description, /GLM/i);
-  assert.strictEqual(plugin.version, '1.2.2');
+  assert.strictEqual(plugin.version, '1.2.3');
 
   const marketplace = readJson('.claude-plugin/marketplace.json');
   assert.strictEqual(marketplace.name, 'bingqiangzhou-tools');
   assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.source === './'));
-  assert.strictEqual(marketplace.version, '1.2.2');
-  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.2.2'));
+  assert.strictEqual(marketplace.version, '1.2.3');
+  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.2.3'));
 
   const packageJson = readJson('package.json');
-  assert.strictEqual(packageJson.version, '1.2.2');
+  assert.strictEqual(packageJson.version, '1.2.3');
 
   assertFile('bin/glm-statusline.js');
   assertFile('bin/glm-statusline-install.js');
@@ -102,6 +102,7 @@ async function main() {
     assert.ok(skillsGuide.includes(heading), `skills guide should include ${heading}`);
   }
 
+  const isolatedDefaultConfigFile = path.join(os.tmpdir(), `missing-glm-statusline-config-${process.pid}.json`);
   const status = run(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({
       model: { display_name: 'Sonnet' },
@@ -111,6 +112,7 @@ async function main() {
     env: {
       ANTHROPIC_AUTH_TOKEN: '',
       ANTHROPIC_BASE_URL: '',
+      GLM_STATUSLINE_CONFIG_FILE: isolatedDefaultConfigFile,
       GLM_STATUSLINE_CACHE_TTL_MS: '1',
     },
   });
@@ -208,6 +210,7 @@ async function main() {
         ANTHROPIC_AUTH_TOKEN: 'test-token',
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
         GLM_STATUSLINE_CACHE_FILE: cacheFile,
+        GLM_STATUSLINE_CONFIG_FILE: isolatedDefaultConfigFile,
         GLM_STATUSLINE_CACHE_TTL_MS: '60000',
       },
     });
@@ -276,6 +279,28 @@ async function main() {
     assert.match(configuredStatus.stdout, /^GLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% │ Day 3K │ 30D 5\.98B\s*$/);
     assert.doesNotMatch(configuredStatus.stdout, /Context/);
     assert.doesNotMatch(configuredStatus.stdout, /Session/);
+
+    const wrappedStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+      input: JSON.stringify({
+        model: { display_name: 'Sonnet' },
+        context_window: { used_percentage: 1, context_window_size: 200000 },
+        transcript_path: transcriptFile,
+      }),
+      env: {
+        ANTHROPIC_AUTH_TOKEN: 'test-token',
+        ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
+        GLM_STATUSLINE_CACHE_FILE: cacheFile,
+        GLM_STATUSLINE_CONFIG_FILE: configFile,
+        GLM_STATUSLINE_CACHE_TTL_MS: '60000',
+        COLUMNS: '34',
+      },
+    });
+    assert.strictEqual(wrappedStatus.status, 0, wrappedStatus.stderr);
+    const wrappedLines = wrappedStatus.stdout.trim().split('\n');
+    assert.strictEqual(wrappedLines.length, 2);
+    assert.match(wrappedLines[0], /^GLM Test │ 5H .+ 10% @18:30$/);
+    assert.match(wrappedLines[1], /^MCP .+ 20% │ Day 3K │ 30D 5\.98B$/);
+    assert.ok(wrappedLines.every((line) => line.length <= 34), wrappedStatus.stdout);
 
     const preview = await runAsync(process.execPath, ['bin/glm-statusline.js', '--preview'], {
       input: JSON.stringify({
@@ -378,6 +403,7 @@ async function main() {
     env: {
       ANTHROPIC_AUTH_TOKEN: '',
       ANTHROPIC_BASE_URL: '',
+      GLM_STATUSLINE_CONFIG_FILE: isolatedDefaultConfigFile,
       GLM_STATUSLINE_CACHE_TTL_MS: '1',
     },
   });

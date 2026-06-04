@@ -91,6 +91,7 @@ GLM Lite │ 5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░�
 ```
 
 真实底部状态栏会在下一次 Claude Code 交互或 refresh interval 后刷新。
+当选择字段较多时，状态栏会根据当前终端宽度自动在字段边界换行，避免后面的内容被挤出可见区域。
 
 ### 5. 安装与卸载 skill
 
@@ -136,6 +137,7 @@ npm test
 - `bin/`、`skills/`、`docs/` 必要文件是否存在。
 - status line 在模拟 Claude Code stdin 下能正常输出。
 - 配置文件可以控制状态栏显示字段。
+- 状态栏会根据终端宽度自动换行。
 - `--preview` 可以打印选择后的状态栏预览。
 - `--plan-details` 能展示 5H、MCP、Weekly、Day、30D 等信息。
 - configure 命令可以写入配置文件。

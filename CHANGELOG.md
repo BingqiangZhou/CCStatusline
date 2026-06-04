@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.3 - 2026-06-04
+
+- Added automatic wrapping at field boundaries based on the terminal width.
+
 ## 1.2.2 - 2026-06-04
 
 - Added an install completion hint that points users to `/glm-statusline:configure`.
