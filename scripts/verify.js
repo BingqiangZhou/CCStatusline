@@ -68,20 +68,22 @@ async function main() {
   const plugin = readJson('.claude-plugin/plugin.json');
   assert.strictEqual(plugin.name, 'glm-statusline');
   assert.match(plugin.description, /GLM/i);
-  assert.strictEqual(plugin.version, '1.1.2');
+  assert.strictEqual(plugin.version, '1.2.0');
 
   const marketplace = readJson('.claude-plugin/marketplace.json');
   assert.strictEqual(marketplace.name, 'bingqiangzhou-tools');
   assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.source === './'));
-  assert.strictEqual(marketplace.version, '1.1.2');
-  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.1.2'));
+  assert.strictEqual(marketplace.version, '1.2.0');
+  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.2.0'));
 
   const packageJson = readJson('package.json');
-  assert.strictEqual(packageJson.version, '1.1.2');
+  assert.strictEqual(packageJson.version, '1.2.0');
 
   assertFile('bin/glm-statusline.js');
   assertFile('bin/glm-statusline-install.js');
+  assertFile('skills/configure/SKILL.md');
   assertFile('skills/install/SKILL.md');
+  assertFile('skills/plan-details/SKILL.md');
   assertFile('skills/uninstall/SKILL.md');
   assertFile('docs/claude-code-plugin-build-guide.md');
   assertFile('docs/claude-code-skills-and-extensions-guide.md');
@@ -113,14 +115,18 @@ async function main() {
     },
   });
   assert.strictEqual(status.status, 0, status.stderr);
-  assert.match(status.stdout, /GLM/);
   assert.match(status.stdout, /5H/);
   assert.match(status.stdout, /Context/);
-  assert.match(status.stdout, /Sess:/);
+  assert.match(status.stdout, /Session 0/);
+  assert.doesNotMatch(status.stdout, /Sess:/);
+  assert.doesNotMatch(status.stdout, /Day:/);
+  assert.doesNotMatch(status.stdout, /30D:/);
+  assert.strictEqual(status.stdout.trim().split('\n').length, 1);
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glm-statusline-plugin-'));
   const transcriptFile = path.join(tempDir, 'transcript.jsonl');
   const cacheFile = path.join(tempDir, 'glm-statusline-cache.json');
+  const configFile = path.join(tempDir, 'glm-statusline-config.json');
   fs.writeFileSync(
     transcriptFile,
     `${JSON.stringify({
@@ -148,8 +154,21 @@ async function main() {
           data: {
             planName: 'GLM Test',
             limits: [
-              { type: 'TOKENS_LIMIT', percentage: 10, nextResetTime: new Date(2026, 5, 4, 18, 30, 0).getTime() },
-              { type: 'TIME_LIMIT', percentage: 20 },
+              {
+                type: 'TOKENS_LIMIT',
+                percentage: 10,
+                currentValue: 2_000,
+                usage: 20_000,
+                nextResetTime: new Date(2026, 5, 4, 18, 30, 0).getTime(),
+              },
+              { type: 'TIME_LIMIT', percentage: 20, currentValue: 3, usage: 30 },
+              {
+                type: 'WEEKLY_LIMIT',
+                percentage: 30,
+                currentValue: 300_000,
+                usage: 1_000_000,
+                nextResetTime: new Date(2026, 5, 8, 9, 0, 0).getTime(),
+              },
             ],
           },
         })
@@ -189,14 +208,36 @@ async function main() {
         ANTHROPIC_AUTH_TOKEN: 'test-token',
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
         GLM_STATUSLINE_CACHE_FILE: cacheFile,
-        GLM_STATUSLINE_CACHE_TTL_MS: '1',
+        GLM_STATUSLINE_CACHE_TTL_MS: '60000',
       },
     });
     assert.strictEqual(apiUsage.status, 0, apiUsage.stderr);
-    assert.match(apiUsage.stdout, /5H@18:30 ｜ Sess:2K/);
-    assert.match(apiUsage.stdout, /Sess:2K/);
-    assert.match(apiUsage.stdout, /Day:3K/);
-    assert.match(apiUsage.stdout, /30D:5\.98B/);
+    assert.match(apiUsage.stdout, /^5H .+ 10% @18:30 │ Context .+ 1% │ Session 2K\s*$/);
+    assert.doesNotMatch(apiUsage.stdout, /Sess:/);
+    assert.doesNotMatch(apiUsage.stdout, /Day:/);
+    assert.doesNotMatch(apiUsage.stdout, /30D:/);
+    assert.strictEqual(apiUsage.stdout.trim().split('\n').length, 1);
+
+    const details = await runAsync(process.execPath, ['bin/glm-statusline.js', '--plan-details'], {
+      env: {
+        ANTHROPIC_AUTH_TOKEN: 'test-token',
+        ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
+        GLM_STATUSLINE_CACHE_FILE: cacheFile,
+        GLM_STATUSLINE_CACHE_TTL_MS: '60000',
+      },
+    });
+    assert.strictEqual(details.status, 0, details.stderr);
+    assert.match(details.stdout, /GLM Coding Plan/);
+    assert.match(details.stdout, /Plan: GLM Test/);
+    assert.match(details.stdout, /5H: 10% · 2K \/ 20K · resets 18:30/);
+    assert.match(details.stdout, /MCP: 20% · 3 \/ 30/);
+    assert.match(details.stdout, /Weekly: 30% · 300K \/ 1M · resets 2026-06-08 09:00/);
+    assert.match(details.stdout, /Day: 3K tokens/);
+    assert.match(details.stdout, /30D: 5\.98B tokens/);
+    assert.match(details.stdout, /API: 127\.0\.0\.1:\d+ · key configured/);
+    assert.doesNotMatch(details.stdout, /Model:/);
+    assert.doesNotMatch(details.stdout, /Context:/);
+    assert.doesNotMatch(details.stdout, /Session tokens:/);
     assert.strictEqual(requests.filter((url) => url.pathname === '/api/monitor/usage/model-usage').length, 2);
     for (const url of requests.filter((item) => item.pathname === '/api/monitor/usage/model-usage')) {
       assert.match(url.searchParams.get('startTime') || '', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
@@ -204,18 +245,68 @@ async function main() {
     }
     const testCache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
     assert.ok(Object.keys(testCache).every((key) => key.includes(`http://127.0.0.1:${port}`)));
+
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify(
+        {
+          layout: 'full',
+          barWidth: 4,
+          display: ['plan', '5h', 'mcp', 'day', '30d'],
+        },
+        null,
+        2
+      )
+    );
+    const configuredStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+      input: JSON.stringify({
+        model: { display_name: 'Sonnet' },
+        context_window: { used_percentage: 1, context_window_size: 200000 },
+        transcript_path: transcriptFile,
+      }),
+      env: {
+        ANTHROPIC_AUTH_TOKEN: 'test-token',
+        ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
+        GLM_STATUSLINE_CACHE_FILE: cacheFile,
+        GLM_STATUSLINE_CONFIG_FILE: configFile,
+        GLM_STATUSLINE_CACHE_TTL_MS: '60000',
+      },
+    });
+    assert.strictEqual(configuredStatus.status, 0, configuredStatus.stderr);
+    assert.match(configuredStatus.stdout, /^GLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% │ Day 3K │ 30D 5\.98B\s*$/);
+    assert.doesNotMatch(configuredStatus.stdout, /Context/);
+    assert.doesNotMatch(configuredStatus.stdout, /Session/);
+
+    const preview = await runAsync(process.execPath, ['bin/glm-statusline.js', '--preview'], {
+      input: JSON.stringify({
+        model: { display_name: 'Sonnet' },
+        context_window: { used_percentage: 1, context_window_size: 200000 },
+        transcript_path: transcriptFile,
+      }),
+      env: {
+        ANTHROPIC_AUTH_TOKEN: 'test-token',
+        ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
+        GLM_STATUSLINE_CACHE_FILE: cacheFile,
+        GLM_STATUSLINE_CONFIG_FILE: configFile,
+        GLM_STATUSLINE_CACHE_TTL_MS: '60000',
+      },
+    });
+    assert.strictEqual(preview.status, 0, preview.stderr);
+    assert.match(preview.stdout, /^Preview:\nGLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% │ Day 3K │ 30D 5\.98B\s*$/);
   } finally {
     await close(server);
   }
 
   const settingsFile = path.join(tempDir, 'settings.json');
   const launcherFile = path.join(tempDir, 'glm-statusline-launcher.js');
+  const installConfigFile = path.join(tempDir, 'install-config.json');
   fs.writeFileSync(settingsFile, JSON.stringify({ env: { GLM_STATUSLINE_PLAN: 'GLM Lite' } }, null, 2));
 
   const install = run(process.execPath, ['bin/glm-statusline-install.js', 'install'], {
     env: {
       GLM_STATUSLINE_SETTINGS_FILE: settingsFile,
       GLM_STATUSLINE_LAUNCHER_FILE: launcherFile,
+      GLM_STATUSLINE_PLUGIN_CACHE_ROOT: path.join(tempDir, 'missing-plugin-cache'),
     },
   });
   assert.strictEqual(install.status, 0, install.stderr);
@@ -227,6 +318,35 @@ async function main() {
   assert.strictEqual(installedSettings.statusLine.refreshInterval, 5);
   assert.strictEqual(installedSettings.statusLine.padding, 0);
   assert.strictEqual(installedSettings.env.GLM_STATUSLINE_PLAN, 'GLM Lite');
+
+  const configure = run(
+    process.execPath,
+    [
+      'bin/glm-statusline-install.js',
+      'configure',
+      '--show=plan,5h,mcp,context',
+      '--bar-width=4',
+      '--layout=full',
+    ],
+    {
+      env: {
+        GLM_STATUSLINE_CONFIG_FILE: installConfigFile,
+        GLM_STATUSLINE_CACHE_FILE: path.join(tempDir, 'configure-cache.json'),
+        ANTHROPIC_AUTH_TOKEN: '',
+        ANTHROPIC_BASE_URL: '',
+        GLM_STATUSLINE_PLAN: 'GLM Lite',
+      },
+    }
+  );
+  assert.strictEqual(configure.status, 0, configure.stderr);
+  assert.match(configure.stdout, /GLM StatusLine config written/);
+  assert.match(configure.stdout, /Preview:\nGLM Lite │ 5H/);
+  assert.match(configure.stdout, /MCP/);
+  assert.match(configure.stdout, /Context/);
+  const savedConfig = JSON.parse(fs.readFileSync(installConfigFile, 'utf8'));
+  assert.deepStrictEqual(savedConfig.display, ['plan', '5h', 'mcp', 'context']);
+  assert.strictEqual(savedConfig.barWidth, 4);
+  assert.strictEqual(savedConfig.layout, 'full');
 
   const launcherStatus = run(process.execPath, [launcherFile], {
     input: JSON.stringify({
@@ -241,7 +361,7 @@ async function main() {
     },
   });
   assert.strictEqual(launcherStatus.status, 0, launcherStatus.stderr);
-  assert.match(launcherStatus.stdout, /5H@/);
+  assert.match(launcherStatus.stdout, /^5H .+ @--:-- │ Context .+ 12% │ Session 0\s*$/);
 
   const uninstall = run(process.execPath, ['bin/glm-statusline-install.js', 'uninstall'], {
     env: {

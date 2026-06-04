@@ -184,7 +184,7 @@ Claude Code 会监听已存在的 skill 目录，`SKILL.md` 修改可在当前 s
 - 带 supporting files 的复杂 skill
 - 带 `context: fork` 的隔离 skill
 
-本项目已经有 `/glm-statusline:install` 和 `/glm-statusline:uninstall` 两个插件 skill，可以继续扩展出 `/glm-statusline:diagnose` 或 `/glm-statusline:configure`。
+本项目已经有 `/glm-statusline:install`、`/glm-statusline:configure`、`/glm-statusline:uninstall` 和 `/glm-statusline:plan-details` 四个插件 skill，可以继续扩展出 `/glm-statusline:diagnose`。
 
 ### 3. Subagents
 
@@ -281,7 +281,7 @@ Output style 改的是系统提示风格，不是项目知识。比如“所有�
 - `userConfig`
 - plugin dependencies
 
-本项目就是这种形态：用插件包装 status line，并提供安装 skill 和 bin 脚本。
+本项目就是这种形态：用插件包装 status line，并提供安装、配置、详情、卸载 skill 和 bin 脚本。
 
 ### 9. Monitors
 
@@ -351,13 +351,15 @@ Monitors 适合“Claude 应该被动知道外部状态变化”的场景。它�
    - 检查 Node 版本、插件安装位置、`~/.claude/settings.json`、GLM env、API 连通性、缓存文件。
    - 输出可复制的诊断报告。
 
-2. `/glm-statusline:configure`
-   - 交互式生成 GLM/Z.ai `env` 配置。
+2. 增强 `/glm-statusline:configure`
+   - 当前已经支持选择 status line 显示字段并打印预览。
+   - 后续可以继续扩展为交互式生成 GLM/Z.ai `env` 配置。
    - 支持国内 `open.bigmodel.cn` 和国际 `api.z.ai`。
 
-3. `/glm-statusline:preview`
-   - 用模拟 stdin 或当前 session 数据预览状态栏输出。
-   - 适合用户修改 `BAR_WIDTH`、`CONTEXT_WINDOW` 后确认效果。
+3. 更独立的 `/glm-statusline:preview`
+   - 当前 `glm-statusline.js --preview` 已经能打印选择后的状态栏效果。
+   - 后续可以单独包装成 skill，用模拟 stdin 或当前 session 数据预览状态栏输出。
+   - 适合用户修改显示字段、`BAR_WIDTH`、`CONTEXT_WINDOW` 后确认效果。
 
 4. Hook 自动诊断
    - 在 `ConfigChange` 或 `SessionStart` 时检查 status line 配置是否仍指向有效脚本。

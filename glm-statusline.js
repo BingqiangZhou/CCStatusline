@@ -5,8 +5,10 @@
  * A single-file Claude Code statusLine script for GLM Coding Plan.
  *
  * Output:
- *   GLM Lite │ 5H ██░░░░░░ 22% │ MCP ███░░░░░ 28% │ Context █████░░░ 68% (GLM-5 / 200K)
- *   5H@18:30 ｜ Sess:160.0K │ Day:42.8M │ 30D:979.2M
+ *   5H ██░░░░░░ 22% @18:30 │ Context █████░░░ 68% │ Session 160K
+ *
+ * Details:
+ *   glm-statusline.js --plan-details
  *
  * Usage in ~/.claude/settings.json:
  * {
@@ -37,10 +39,33 @@ const { URL } = require('url');
 
 const HOME = os.homedir();
 const CACHE_FILE = process.env.GLM_STATUSLINE_CACHE_FILE || path.join(HOME, '.claude', 'glm-statusline-cache.json');
+const DEFAULT_CONFIG_FILE = path.join(HOME, '.claude', 'glm-statusline-config.json');
 const DEFAULT_CONTEXT_WINDOW = 200000;
 const API_TIMEOUT_MS = Number(process.env.GLM_STATUSLINE_TIMEOUT_MS || 2200);
 const CACHE_TTL_MS = Number(process.env.GLM_STATUSLINE_CACHE_TTL_MS || 60_000);
 const BAR_WIDTH = Number(process.env.GLM_STATUSLINE_BAR_WIDTH || 8);
+const DEFAULT_DISPLAY = ['5h', 'context', 'session'];
+const DISPLAY_ALIASES = {
+  plan: 'plan',
+  package: 'plan',
+  quota: '5h',
+  '5h': '5h',
+  fivehour: '5h',
+  five_hour: '5h',
+  mcp: 'mcp',
+  tool: 'mcp',
+  tools: 'mcp',
+  context: 'context',
+  ctx: 'context',
+  model: 'model',
+  session: 'session',
+  sess: 'session',
+  day: 'day',
+  today: 'day',
+  '30d': '30d',
+  month: '30d',
+  monthly: '30d',
+};
 
 const PLAN_KEYS = [
   'planName',
@@ -72,6 +97,77 @@ function readJsonFile(filePath) {
   } catch (_) {
     return null;
   }
+}
+
+function boolFromValue(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value !== 'string') return null;
+  if (/^(1|true|yes|on)$/i.test(value.trim())) return true;
+  if (/^(0|false|no|off)$/i.test(value.trim())) return false;
+  return null;
+}
+
+function normalizeDisplayItem(item) {
+  const key = String(item || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return DISPLAY_ALIASES[key] || '';
+}
+
+function normalizeDisplayList(value) {
+  const raw = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
+  const seen = new Set();
+  const display = [];
+  for (const item of raw) {
+    const normalized = normalizeDisplayItem(item);
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      display.push(normalized);
+    }
+  }
+  return display;
+}
+
+function displayFromBooleans(config, fallback) {
+  const fields = [
+    ['showPlan', 'plan'],
+    ['show5h', '5h'],
+    ['showMcp', 'mcp'],
+    ['showContext', 'context'],
+    ['showModel', 'model'],
+    ['showSession', 'session'],
+    ['showDay', 'day'],
+    ['show30d', '30d'],
+  ];
+  let display = [...fallback];
+  let changed = false;
+  for (const [key, field] of fields) {
+    const value = boolFromValue(config?.[key]);
+    if (value === null) continue;
+    changed = true;
+    display = display.filter((item) => item !== field);
+    if (value) display.push(field);
+  }
+  return changed ? display : fallback;
+}
+
+function readStatusConfig(env = process.env) {
+  const configPath = expandHome(env.GLM_STATUSLINE_CONFIG_FILE || DEFAULT_CONFIG_FILE);
+  const fileConfig = readJsonFile(configPath) || {};
+  const fromFile = normalizeDisplayList(fileConfig.display);
+  const fromEnv = normalizeDisplayList(env.GLM_STATUSLINE_DISPLAY || env.GLM_STATUSLINE_SHOW);
+  let display = fromEnv.length ? fromEnv : fromFile.length ? fromFile : [...DEFAULT_DISPLAY];
+  display = displayFromBooleans(fileConfig, display);
+  if (!display.length) display = [...DEFAULT_DISPLAY];
+
+  const barWidth = Number(fileConfig.barWidth ?? env.GLM_STATUSLINE_BAR_WIDTH ?? BAR_WIDTH);
+  const layout = String(fileConfig.layout || env.GLM_STATUSLINE_LAYOUT || 'compact').toLowerCase() === 'full' ? 'full' : 'compact';
+
+  return {
+    configPath,
+    display,
+    layout,
+    barWidth: Number.isFinite(barWidth) && barWidth > 0 ? Math.max(1, Math.min(20, Math.round(barWidth))) : BAR_WIDTH,
+  };
 }
 
 function mergeEnvFromSettings(sessionContext) {
@@ -244,6 +340,60 @@ function readPercent(obj) {
   return null;
 }
 
+function readNumberFromKeys(obj, keys) {
+  if (!obj || typeof obj !== 'object') return null;
+  for (const key of keys) {
+    const value = Number(obj[key]);
+    if (Number.isFinite(value) && value >= 0) return value;
+  }
+  return null;
+}
+
+function readUsageDetail(obj) {
+  if (!obj || typeof obj !== 'object') {
+    return { used: null, total: null };
+  }
+
+  const used = readNumberFromKeys(obj, [
+    'currentValue',
+    'current_value',
+    'usedValue',
+    'used_value',
+    'used',
+    'current',
+    'consumed',
+    'requestUsed',
+    'usedCount',
+    'usageValue',
+  ]);
+
+  let total = readNumberFromKeys(obj, [
+    'total',
+    'totalValue',
+    'total_value',
+    'limit',
+    'limitValue',
+    'limit_value',
+    'max',
+    'quota',
+    'quotaValue',
+  ]);
+
+  const usage = Number(obj.usage);
+  if (total === null && used !== null && Number.isFinite(usage) && usage >= 0) {
+    total = usage;
+  }
+
+  const normalizedUsed =
+    used !== null
+      ? used
+      : total !== null && Number.isFinite(usage) && usage >= 0
+        ? usage
+        : null;
+
+  return { used: normalizedUsed, total };
+}
+
 function readResetTime(obj) {
   if (!obj || typeof obj !== 'object') return null;
   const keys = [
@@ -307,9 +457,28 @@ function classifyLimit(limit) {
     key: limit.key,
   }).toUpperCase();
 
+  if (/WEEK|7D|SEVEN/.test(text)) return 'weekly';
   if (/MCP|TOOL|TOOLS|TIME_LIMIT|TIME/.test(text)) return 'mcp';
   if (/5H|FIVE|TOKEN|TOKENS|TOKENS_LIMIT|MODEL/.test(text)) return 'fiveHour';
   return '';
+}
+
+function readLimitDisplayName(limit) {
+  if (!limit || typeof limit !== 'object') return '';
+  const value = limit.title || limit.name || limit.type || limit.limitType || limit.quotaType || limit.code || limit.key;
+  return typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value);
+}
+
+function limitDetail(limit, kind) {
+  const usage = readUsageDetail(limit);
+  return {
+    kind,
+    name: readLimitDisplayName(limit),
+    percent: readPercent(limit),
+    used: usage.used,
+    total: usage.total,
+    resetTime: readResetTime(limit),
+  };
 }
 
 function extractQuotaData(json) {
@@ -320,6 +489,12 @@ function extractQuotaData(json) {
     fiveHourResetTime: null,
     fiveHourUpdateTime: null,
     mcpPercent: null,
+    weeklyPercent: null,
+    fiveHourLimit: null,
+    mcpLimit: null,
+    weeklyLimit: null,
+    otherLimits: [],
+    limits: [],
   };
 
   const candidates = [];
@@ -327,17 +502,28 @@ function extractQuotaData(json) {
 
   for (const item of candidates) {
     const kind = classifyLimit(item);
-    if (!kind) continue;
     const percent = readPercent(item);
+    if (!kind) {
+      if (percent !== null) result.otherLimits.push(limitDetail(item, 'other'));
+      continue;
+    }
     if (percent === null) continue;
+    const detail = limitDetail(item, kind);
+    result.limits.push(detail);
     if (kind === 'fiveHour' && result.fiveHourPercent === null) {
       result.fiveHourPercent = percent;
+      result.fiveHourLimit = detail;
     }
     if (kind === 'fiveHour' && result.fiveHourResetTime === null) {
-      result.fiveHourResetTime = readResetTime(item);
+      result.fiveHourResetTime = detail.resetTime;
     }
     if (kind === 'mcp' && result.mcpPercent === null) {
       result.mcpPercent = percent;
+      result.mcpLimit = detail;
+    }
+    if (kind === 'weekly' && result.weeklyPercent === null) {
+      result.weeklyPercent = percent;
+      result.weeklyLimit = detail;
     }
   }
 
@@ -365,6 +551,12 @@ async function fetchQuota(env) {
     fiveHourResetTime: null,
     fiveHourUpdateTime: null,
     mcpPercent: null,
+    weeklyPercent: null,
+    fiveHourLimit: null,
+    mcpLimit: null,
+    weeklyLimit: null,
+    otherLimits: [],
+    limits: [],
   };
 
   if (!baseRoot || !authToken) return fallback;
@@ -687,14 +879,107 @@ function formatContextMax(value) {
   return String(Math.round(n));
 }
 
-function formatTimeHHmm(d = new Date()) {
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+function formatLocalDateTime(ms) {
+  if (!Number.isFinite(ms)) return '--';
+  const date = new Date(ms);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate()
+  ).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(
+    2,
+    '0'
+  )}`;
+}
+
+function formatTimeHHmm(ms) {
+  const value = ms instanceof Date ? ms.getTime() : Number(ms);
+  if (!Number.isFinite(value)) return '--:--';
+  const date = new Date(value);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 function formatResetHHmm(timestamp) {
-  const ms = Number(timestamp);
-  if (!Number.isFinite(ms) || ms <= 0) return '--:--';
-  return formatTimeHHmm(new Date(ms));
+  const ms = parseResetTime(timestamp);
+  if (ms === null) return '--:--';
+  return formatTimeHHmm(ms);
+}
+
+function formatAge(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return 'unknown';
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  return `${hours}h ago`;
+}
+
+function formatLimitLine(label, detail, options = {}) {
+  const percent = Number.isFinite(detail?.percent) ? `${detail.percent}%` : 'unavailable';
+  const usage =
+    Number.isFinite(detail?.used) && Number.isFinite(detail?.total)
+      ? ` · ${formatTokens(detail.used)} / ${formatTokens(detail.total)}`
+      : '';
+  const reset =
+    Number.isFinite(detail?.resetTime) && options.showReset
+      ? ` · resets ${options.longReset ? formatLocalDateTime(detail.resetTime) : formatTimeHHmm(detail.resetTime)}`
+      : '';
+  return `${label}: ${percent}${usage}${reset}`;
+}
+
+function cacheAgeFor(key) {
+  const cache = loadCache();
+  const entry = cache[key];
+  return entry && typeof entry.ts === 'number' ? Date.now() - entry.ts : NaN;
+}
+
+function apiHostLabel(baseRoot) {
+  if (!baseRoot) return 'not configured';
+  try {
+    return new URL(baseRoot).host;
+  } catch (_) {
+    return baseRoot;
+  }
+}
+
+function isPlanDetailsMode() {
+  return process.argv.includes('--plan-details') || process.argv.includes('plan-details');
+}
+
+function isPreviewMode() {
+  return process.argv.includes('--preview') || process.argv.includes('preview');
+}
+
+async function renderPlanDetails() {
+  const env = mergeEnvFromSettings({});
+  const baseRoot = normalizeBaseRoot(env.ANTHROPIC_BASE_URL || '');
+  const quotaCacheKey = `quota:${baseRoot}`;
+  const [quota, dayFromApi, monthFromApi] = await Promise.all([
+    fetchQuota(env),
+    fetchModelUsage(env, 'day'),
+    fetchModelUsage(env, 'month'),
+  ]);
+
+  const lines = ['GLM Coding Plan', `Plan: ${quota.planName || normalizePlanName(env.GLM_STATUSLINE_PLAN) || 'GLM'}`];
+  lines.push(
+    formatLimitLine('5H', quota.fiveHourLimit || { percent: quota.fiveHourPercent, resetTime: quota.fiveHourResetTime }, { showReset: true })
+  );
+  lines.push(formatLimitLine('MCP', quota.mcpLimit || { percent: quota.mcpPercent }));
+  if (quota.weeklyLimit || quota.weeklyPercent !== null) {
+    lines.push(formatLimitLine('Weekly', quota.weeklyLimit || { percent: quota.weeklyPercent }, { showReset: true, longReset: true }));
+  }
+  for (const detail of quota.otherLimits || []) {
+    const label = detail.name ? titleCase(detail.name) : 'Other';
+    lines.push(formatLimitLine(label, detail, { showReset: true, longReset: true }));
+  }
+  lines.push(`Day: ${formatTokens(dayFromApi ?? 0)} tokens`);
+  lines.push(`30D: ${formatTokens(monthFromApi ?? 0)} tokens`);
+  lines.push(
+    `API: ${apiHostLabel(baseRoot)} · key ${env.ANTHROPIC_AUTH_TOKEN ? 'configured' : 'missing'} · cache ${formatAge(
+      cacheAgeFor(quotaCacheKey)
+    )}`
+  );
+
+  return lines.join('\n');
 }
 
 async function readStdinJson() {
@@ -707,46 +992,64 @@ async function readStdinJson() {
   }
 }
 
-async function main() {
-  const sessionContext = await readStdinJson();
+async function renderStatusLine(sessionContext = {}) {
   const env = mergeEnvFromSettings(sessionContext);
+  const config = readStatusConfig(env);
 
   const transcriptPath = expandHome(
     sessionContext?.transcript_path || sessionContext?.transcriptPath || sessionContext?.conversation_log_path || ''
   );
   const sessionTokens = readJsonlTokenStats(transcriptPath);
 
-  const [quota, dayFromApi, monthFromApi] = await Promise.all([
-    fetchQuota(env),
-    fetchModelUsage(env, 'day'),
-    fetchModelUsage(env, 'month'),
-  ]);
-
-  const dayTokens = dayFromApi ?? 0;
-  const monthTokens = monthFromApi ?? 0;
-
-  const modelName = mapClaudeModelToGlm(sessionContext, env);
+  const quota = await fetchQuota(env);
   const contextInfo = getContextInfo(sessionContext, sessionTokens, env);
-  const planName = quota.planName || normalizePlanName(env.GLM_STATUSLINE_PLAN) || 'GLM';
   const fiveHourPercent = quota.fiveHourPercent ?? 0;
   const fiveHourReset = formatResetHHmm(quota.fiveHourUpdateTime || quota.fiveHourResetTime);
-  const mcpPercent = quota.mcpPercent ?? 0;
+  const needsDay = config.display.includes('day');
+  const needsMonth = config.display.includes('30d');
+  const [dayTokens, monthTokens] = await Promise.all([
+    needsDay ? fetchModelUsage(env, 'day') : Promise.resolve(null),
+    needsMonth ? fetchModelUsage(env, 'month') : Promise.resolve(null),
+  ]);
 
-  const line1 = `${planName} │ 5H ${renderBar(fiveHourPercent)} │ MCP ${renderBar(
-    mcpPercent
-  )} │ Context ${renderBar(contextInfo.percent)} (${modelName} / ${formatContextMax(contextInfo.max)})`;
+  const planName = quota.planName || normalizePlanName(env.GLM_STATUSLINE_PLAN) || 'GLM';
+  const fields = {
+    plan: planName,
+    '5h': `5H ${renderBar(fiveHourPercent, config.barWidth)} @${fiveHourReset}`,
+    mcp: `MCP ${renderBar(quota.mcpPercent ?? 0, config.barWidth)}`,
+    context:
+      config.layout === 'full'
+        ? `Context ${renderBar(contextInfo.percent, config.barWidth)} (${formatContextMax(contextInfo.max)})`
+        : `Context ${renderBar(contextInfo.percent, config.barWidth)}`,
+    model: `Model ${mapClaudeModelToGlm(sessionContext, env)}`,
+    session: `Session ${formatTokens(sessionTokens)}`,
+    day: `Day ${formatTokens(dayTokens ?? 0)}`,
+    '30d': `30D ${formatTokens(monthTokens ?? 0)}`,
+  };
 
-  const line2 = `5H@${fiveHourReset} ｜ Sess:${formatTokens(sessionTokens)} │ Day:${formatTokens(
-    dayTokens
-  )} │ 30D:${formatTokens(monthTokens)}`;
+  const segments = config.display.map((item) => fields[item]).filter(Boolean);
+  return (segments.length ? segments : DEFAULT_DISPLAY.map((item) => fields[item])).join(' │ ');
+}
 
-  console.log(`${line1}\n${line2}`);
+async function main() {
+  if (isPlanDetailsMode()) {
+    console.log(await renderPlanDetails());
+    return;
+  }
+
+  const sessionContext = await readStdinJson();
+  const output = await renderStatusLine(sessionContext);
+  console.log(isPreviewMode() ? `Preview:\n${output}` : output);
 }
 
 main().catch((err) => {
   // Keep Claude Code usable even if the script crashes.
   const msg = err && err.message ? err.message : String(err);
-  console.log(`GLM │ 5H ${renderBar(0)} │ MCP ${renderBar(0)} │ Context ${renderBar(0)} (GLM / 200K)\n5H@--:-- ｜ Sess:0 │ Day:0 │ 30D:0`);
+  if (isPlanDetailsMode()) {
+    console.log('GLM Coding Plan\nPlan: GLM\n5H: unavailable\nMCP: unavailable\nDay: 0 tokens\n30D: 0 tokens\nAPI: not configured · key missing · cache unknown');
+    return;
+  }
+  console.log(`5H ${renderBar(0)} @--:-- │ Context ${renderBar(0)} │ Session 0`);
   if (process.env.GLM_STATUSLINE_DEBUG === '1') {
     console.error(msg);
   }

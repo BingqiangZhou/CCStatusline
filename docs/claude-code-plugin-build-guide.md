@@ -33,7 +33,7 @@ plugin-root/
 
 - `plugin.json`：定义插件名、显示名、描述、版本、作者和关键词。
 - `marketplace.json`：让当前目录可以作为本地 marketplace 被 `/plugin marketplace add` 添加。
-- `skills/`：暴露 `/glm-statusline:install` 和 `/glm-statusline:uninstall` 两个命令式技能。
+- `skills/`：暴露 `/glm-statusline:install`、`/glm-statusline:configure`、`/glm-statusline:uninstall` 和 `/glm-statusline:plan-details` 命令式技能。
 - `bin/`：放入 Claude Code Bash 工具的 `PATH`，让技能可以运行安装脚本。
 
 官方文档说明，插件可以包含 `settings.json`，但插件 settings 当前适合配置插件启用后的默认设置，不适合可靠地替用户自动接管主界面的 `statusLine.command`。Claude Code 的主状态栏仍然通过用户或项目 settings 里的 `statusLine` 字段配置。因此本项目采用“插件安装后显式启用”的方式。
@@ -75,6 +75,20 @@ glm-statusline-install.js install
 
 如果已有 settings 文件，安装脚本会先写一个 `*.glm-statusline-plugin.bak.*` 备份。
 
+安装时也可以直接选择显示字段：
+
+```text
+/glm-statusline:install --show=plan,5h,mcp,context,session --layout=full --bar-width=8
+```
+
+或者安装后单独配置：
+
+```text
+/glm-statusline:configure --show=5h,context,session
+```
+
+配置会写到 `~/.claude/glm-statusline-config.json`。配置命令会马上运行 `glm-statusline.js --preview` 并把选择后的效果打印在当前会话中；真实底部 status line 则会在下一次 Claude Code 交互或 refresh interval 后刷新。
+
 卸载状态栏配置：
 
 ```text
@@ -93,23 +107,35 @@ glm-statusline-install.js uninstall
 
 它的核心模块如下：
 
-- 配置读取：`mergeEnvFromSettings()` 合并 `~/.claude/settings.json`、项目 `.claude/settings.json`、项目 `.claude/settings.local.json` 和当前进程环境变量。
-- GLM API 请求：`fetchQuota()` 根据 `ANTHROPIC_BASE_URL` 推导 GLM/Z.ai API 根地址，请求 `/api/monitor/usage/quota/limit`，提取套餐、5 小时用量和 MCP/tool 用量。
+- 配置读取：`mergeEnvFromSettings()` 合并 `~/.claude/settings.json`、项目 `.claude/settings.json`、项目 `.claude/settings.local.json` 和当前进程环境变量；`readStatusConfig()` 读取 `~/.claude/glm-statusline-config.json` 并决定状态栏显示字段。
+- GLM API 请求：`fetchQuota()` 根据 `ANTHROPIC_BASE_URL` 推导 GLM/Z.ai API 根地址，请求 `/api/monitor/usage/quota/limit`，提取套餐、5 小时用量、MCP/tool 用量和 API 返回的周额度。
 - API 缓存：`loadCache()`、`saveCache()` 和 `isFresh()` 把远程用量缓存在 `~/.claude/glm-statusline-cache.json`，默认 60 秒，避免 status line 每次刷新都打 API。
 - 套餐识别：`recursiveFindStringByKeys()` 和 `normalizePlanName()` 在 API 返回里递归查找 `planName`、`packageName`、`tier`、`sku` 等字段，并格式化成 `GLM Lite`、`GLM Pro` 等显示名。
-- 用量识别：`classifyLimit()` 和 `readPercent()` 兼容不同 API 字段名，从 limit 对象中识别 `5H`、token limit、MCP、tool limit 等类别并换算百分比。
-- 模型映射：`mapClaudeModelToGlm()` 根据 Claude Code 当前显示的 `Opus`、`Sonnet`、`Haiku`，读取 `ANTHROPIC_DEFAULT_*_MODEL`，显示真实 GLM 模型名。
+- 用量识别：`classifyLimit()`、`readPercent()` 和 `readUsageDetail()` 兼容不同 API 字段名，从 limit 对象中识别 `5H`、weekly、MCP/tool 等类别，并提取百分比、已用/总量和 reset 时间。
+- 模型映射：`mapClaudeModelToGlm()` 根据 Claude Code 当前显示的 `Opus`、`Sonnet`、`Haiku`，读取 `ANTHROPIC_DEFAULT_*_MODEL`，保留给未来扩展使用；当前常驻状态栏和 plan details 不显示模型名。
 - Context 统计：`getContextInfo()` 优先读取 stdin 的 `context_window.used_percentage` 和 `context_window.context_window_size`，缺失时用当前 transcript token 数做兜底估算。
 - Transcript token 统计：`readJsonlTokenStats()` 解析当前会话 JSONL transcript，把 input、output、cache creation、cache read token 累加成 `Sess`。
-- Day/30D 统计：`fetchModelUsage()` 请求智谱/Z.ai `/api/monitor/usage/model-usage`，按官方 `yyyy-MM-dd HH:mm:ss` 时间格式传入当天和近 30 天窗口；接口不可用或未配置 token/base URL 时显示 0。
-- 5H 更新时间：第二行开头显示 `5H@HH:mm`；优先使用 quota 接口 5H limit 的 `nextResetTime`，接口未返回时使用 quota 数据最后一次成功刷新的时间。
-- 渲染：`renderBar()`、`formatTokens()`、`formatContextMax()` 和 `formatTimeHHmm()` 把数据格式化为两行状态栏文本。
+- Day/30D 统计：`fetchModelUsage()` 请求智谱/Z.ai `/api/monitor/usage/model-usage`，按官方 `yyyy-MM-dd HH:mm:ss` 时间格式传入当天和近 30 天窗口；这些数据会在 `/glm-statusline:plan-details` 中显示，也会在用户把 `day` 或 `30d` 加入 status line 配置时显示。
+- 5H reset：常驻状态栏显示 `5H ... @HH:mm`；优先使用 quota 接口 5H limit 的 `nextResetTime`，接口未返回时使用 quota 数据最后一次成功刷新的时间。
+- 渲染：`renderStatusLine()` 按用户选择的字段组合状态栏；`renderBar()`、`formatTokens()` 和 `formatTimeHHmm()` 负责具体格式；`renderPlanDetails()` 负责 plan details 命令输出。
 
 最终输出形态：
 
 ```text
-GLM Lite │ 5H ██░░░░░░ 22% │ MCP ███░░░░░ 28% │ Context █████░░░ 68% (GLM-5 / 200K)
-5H@18:30 ｜ Sess:160.0K │ Day:42.8M │ 30D:979.2M
+5H ██░░░░░░ 22% @18:30 │ Context █████░░░ 68% │ Session 160K
+```
+
+`/glm-statusline:plan-details` 输出套餐详情，例如：
+
+```text
+GLM Coding Plan
+Plan: GLM Max
+5H: 22% · 2M / 10M · resets 18:30
+MCP: 28% · 28 / 100
+Weekly: 12% · 120K / 1M · resets 2026-06-08 09:00
+Day: 42.8M tokens
+30D: 979.2M tokens
+API: api.z.ai · key configured · cache 12s ago
 ```
 
 脚本的容错策略比较适合 status line：API 失败时用缓存，缓存没有时显示 0%；脚本崩溃时也会输出一个安全兜底状态栏，避免 Claude Code 界面被状态栏错误影响。
@@ -119,8 +145,10 @@ GLM Lite │ 5H ██░░░░░░ 22% │ MCP ███░░░░░ 28
 本项目没有拆散 `glm-statusline.js`，而是新增一个插件包装层：
 
 - `bin/glm-statusline.js`：插件内 status line launcher，直接加载根目录的 `glm-statusline.js`。
-- `bin/glm-statusline-install.js`：显式启用/禁用脚本，负责写入或移除 `~/.claude/settings.json` 的 `statusLine` 字段。
+- `bin/glm-statusline-install.js`：显式启用/禁用脚本，负责写入或移除 `~/.claude/settings.json` 的 `statusLine` 字段，也负责写入显示配置和输出预览。
 - `skills/install/SKILL.md`：安装技能，用户运行 `/glm-statusline:install` 后，Claude Code 会执行安装脚本。
+- `skills/configure/SKILL.md`：配置技能，用户运行 `/glm-statusline:configure` 后，Claude Code 会执行 `glm-statusline-install.js configure`。
+- `skills/plan-details/SKILL.md`：详情技能，用户运行 `/glm-statusline:plan-details` 后，Claude Code 会执行 `glm-statusline.js --plan-details`。
 - `skills/uninstall/SKILL.md`：卸载技能，移除本插件管理的 status line 配置。
 - `.claude-plugin/plugin.json`：插件清单。
 - `.claude-plugin/marketplace.json`：本地 marketplace 清单。
@@ -144,8 +172,12 @@ npm test
 - `.claude-plugin/plugin.json` 是合法 JSON，并且插件名为 `glm-statusline`。
 - `.claude-plugin/marketplace.json` 包含 `glm-statusline`，且 source 为当前目录 `./`。
 - `bin/`、`skills/` 和文档文件存在。
-- `bin/glm-statusline.js` 能在模拟 Claude Code stdin 下输出包含 `GLM`、`5H`、`Context`、`Sess` 的状态栏。
+- `bin/glm-statusline.js` 能在模拟 Claude Code stdin 下输出一行包含 `5H`、`Context`、`Session` 的状态栏。
+- `bin/glm-statusline.js` 能根据 `~/.claude/glm-statusline-config.json` 或测试指定的 config 文件切换显示字段。
+- `bin/glm-statusline.js --preview` 能输出 `Preview:` 和当前配置对应的状态栏。
+- `bin/glm-statusline.js --plan-details` 能输出 plan、5H、MCP、可选 weekly、Day/30D 和 API/cache 状态。
 - `bin/glm-statusline-install.js install` 能在临时 settings 文件中写入正确 `statusLine`。
+- `bin/glm-statusline-install.js configure` 能写入显示配置并打印预览。
 - `bin/glm-statusline-install.js uninstall` 能移除本插件管理的 `statusLine`。
 
 ## 常用配置
@@ -168,6 +200,9 @@ GLM/Z.ai 相关配置仍然放在 Claude Code settings 的 `env` 中：
 可选环境变量：
 
 - `GLM_STATUSLINE_PLAN`：API 不返回套餐名时的手动兜底。
+- `GLM_STATUSLINE_CONFIG_FILE=~/.claude/glm-statusline-config.json`：调整显示配置文件位置。
+- `GLM_STATUSLINE_DISPLAY=5h,context,session`：不写配置文件时，用环境变量控制显示字段。
+- `GLM_STATUSLINE_LAYOUT=compact`：控制显示布局，支持 `compact` 和 `full`。
 - `GLM_STATUSLINE_CACHE_TTL_MS=60000`：调整 API 缓存时间。
 - `GLM_STATUSLINE_CACHE_FILE=~/.claude/glm-statusline-cache.json`：调整缓存文件位置，主要用于测试或隔离运行。
 - `GLM_STATUSLINE_TIMEOUT_MS=2200`：调整 API 超时。

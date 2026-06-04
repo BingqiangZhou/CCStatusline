@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0 - 2026-06-04
+
+- Simplified the live status line to one row: 5H quota/reset, Context, and Session tokens.
+- Added configurable status line fields through `/glm-statusline:configure`, `GLM_STATUSLINE_DISPLAY`, and `~/.claude/glm-statusline-config.json`.
+- Added `glm-statusline.js --preview` and installer/configurator preview output so users can see selected fields immediately.
+- Added `/glm-statusline:plan-details` for expanded GLM Coding Plan information.
+- Added quota detail extraction for used/total values, reset times, MCP quota, and weekly quota when the API returns it.
+- Kept model, Context, and Session token details out of the plan details command.
+
 ## 1.1.2 - 2026-06-04
 
 - Added `CHANGELOG.md` to track plugin releases.
