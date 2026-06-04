@@ -68,16 +68,16 @@ async function main() {
   const plugin = readJson('.claude-plugin/plugin.json');
   assert.strictEqual(plugin.name, 'glm-statusline');
   assert.match(plugin.description, /GLM/i);
-  assert.strictEqual(plugin.version, '1.1.1');
+  assert.strictEqual(plugin.version, '1.1.2');
 
   const marketplace = readJson('.claude-plugin/marketplace.json');
   assert.strictEqual(marketplace.name, 'bingqiangzhou-tools');
   assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.source === './'));
-  assert.strictEqual(marketplace.version, '1.1.1');
-  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.1.1'));
+  assert.strictEqual(marketplace.version, '1.1.2');
+  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.1.2'));
 
   const packageJson = readJson('package.json');
-  assert.strictEqual(packageJson.version, '1.1.1');
+  assert.strictEqual(packageJson.version, '1.1.2');
 
   assertFile('bin/glm-statusline.js');
   assertFile('bin/glm-statusline-install.js');
@@ -120,6 +120,7 @@ async function main() {
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glm-statusline-plugin-'));
   const transcriptFile = path.join(tempDir, 'transcript.jsonl');
+  const cacheFile = path.join(tempDir, 'glm-statusline-cache.json');
   fs.writeFileSync(
     transcriptFile,
     `${JSON.stringify({
@@ -187,6 +188,7 @@ async function main() {
       env: {
         ANTHROPIC_AUTH_TOKEN: 'test-token',
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
+        GLM_STATUSLINE_CACHE_FILE: cacheFile,
         GLM_STATUSLINE_CACHE_TTL_MS: '1',
       },
     });
@@ -200,6 +202,8 @@ async function main() {
       assert.match(url.searchParams.get('startTime') || '', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
       assert.match(url.searchParams.get('endTime') || '', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
     }
+    const testCache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    assert.ok(Object.keys(testCache).every((key) => key.includes(`http://127.0.0.1:${port}`)));
   } finally {
     await close(server);
   }

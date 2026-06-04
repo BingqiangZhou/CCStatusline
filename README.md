@@ -29,6 +29,14 @@ For marketplace-style installation from this local repository:
 
 `/glm-statusline:install` runs `glm-statusline-install.js install`, which writes the `statusLine` command into `~/.claude/settings.json`.
 
+After updating the plugin, run:
+
+```bash
+claude plugin update glm-statusline@bingqiangzhou-tools
+```
+
+The installer uses a stable launcher at `~/.claude/glm-statusline-launcher.js`, so future updates do not leave `statusLine.command` pinned to an older plugin cache path.
+
 ## Configure GLM
 
 Keep GLM credentials in Claude Code settings:
@@ -48,5 +56,6 @@ Keep GLM credentials in Claude Code settings:
 
 See these docs for the build notes and extension research:
 
+- [CHANGELOG.md](CHANGELOG.md)
 - [docs/claude-code-plugin-build-guide.md](docs/claude-code-plugin-build-guide.md)
 - [docs/claude-code-skills-and-extensions-guide.md](docs/claude-code-skills-and-extensions-guide.md)

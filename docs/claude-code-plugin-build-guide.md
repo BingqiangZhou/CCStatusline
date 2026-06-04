@@ -169,5 +169,14 @@ GLM/Z.ai 相关配置仍然放在 Claude Code settings 的 `env` 中：
 
 - `GLM_STATUSLINE_PLAN`：API 不返回套餐名时的手动兜底。
 - `GLM_STATUSLINE_CACHE_TTL_MS=60000`：调整 API 缓存时间。
+- `GLM_STATUSLINE_CACHE_FILE=~/.claude/glm-statusline-cache.json`：调整缓存文件位置，主要用于测试或隔离运行。
 - `GLM_STATUSLINE_TIMEOUT_MS=2200`：调整 API 超时。
 - `GLM_STATUSLINE_BAR_WIDTH=8`：调整进度条宽度。
+
+缓存策略建议：
+
+- 默认 `60000` ms 是一个比较稳的折中：status line 每 5 秒刷新一次，但 quota、Day、30D 这类聚合数据没有必要每次都请求 API。
+- 日常使用建议保留 60 秒。这样界面足够新，也不会把智谱/Z.ai monitor API 打得太频繁。
+- 调试 API 或排查数据问题时，可以临时设置 `GLM_STATUSLINE_CACHE_TTL_MS=1`。
+- 如果更关注减少 API 请求，可以设置为 `120000` 到 `300000` ms。代价是 5H 百分比和 Day/30D token 会慢一些更新。
+- 不建议长期设置为 `0` 或 `1`，因为 Claude Code status line 刷新频繁，会显著增加接口调用。

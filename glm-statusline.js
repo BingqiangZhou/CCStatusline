@@ -36,7 +36,7 @@ const http = require('http');
 const { URL } = require('url');
 
 const HOME = os.homedir();
-const CACHE_FILE = path.join(HOME, '.claude', 'glm-statusline-cache.json');
+const CACHE_FILE = process.env.GLM_STATUSLINE_CACHE_FILE || path.join(HOME, '.claude', 'glm-statusline-cache.json');
 const DEFAULT_CONTEXT_WINDOW = 200000;
 const API_TIMEOUT_MS = Number(process.env.GLM_STATUSLINE_TIMEOUT_MS || 2200);
 const CACHE_TTL_MS = Number(process.env.GLM_STATUSLINE_CACHE_TTL_MS || 60_000);
