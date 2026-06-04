@@ -117,7 +117,7 @@ glm-statusline-install.js uninstall
 - Transcript token 统计：`readJsonlTokenStats()` 解析当前会话 JSONL transcript，把 input、output、cache creation、cache read token 累加成 `Sess`。
 - Day/30D 统计：`fetchModelUsage()` 请求智谱/Z.ai `/api/monitor/usage/model-usage`，按官方 `yyyy-MM-dd HH:mm:ss` 时间格式传入当天和近 30 天窗口；这些数据会在 `/glm-statusline:plan-details` 中显示，也会在用户把 `day` 或 `30d` 加入 status line 配置时显示。
 - 5H reset：常驻状态栏显示 `5H ... @HH:mm`；优先使用 quota 接口 5H limit 的 `nextResetTime`，接口未返回时使用 quota 数据最后一次成功刷新的时间。
-- 渲染：`renderStatusLine()` 按用户选择的字段组合状态栏，并根据当前终端宽度在字段边界自动换行；`renderBar()`、`formatTokens()` 和 `formatTimeHHmm()` 负责具体格式；`renderPlanDetails()` 负责 plan details 命令输出。
+- 渲染：`renderStatusLine()` 按用户选择的字段组合状态栏，并根据当前终端宽度做保守估算，在字段边界自动换行；`renderBar()`、`formatTokens()` 和 `formatTimeHHmm()` 负责具体格式；`renderPlanDetails()` 负责 plan details 命令输出。
 
 最终输出形态：
 

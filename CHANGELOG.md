@@ -2,7 +2,7 @@
 
 ## 1.2.3 - 2026-06-04
 
-- Added automatic wrapping at field boundaries based on the terminal width.
+- Added automatic wrapping at field boundaries based on a conservative terminal-width estimate.
 
 ## 1.2.2 - 2026-06-04
 

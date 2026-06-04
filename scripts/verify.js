@@ -292,7 +292,7 @@ async function main() {
         GLM_STATUSLINE_CACHE_FILE: cacheFile,
         GLM_STATUSLINE_CONFIG_FILE: configFile,
         GLM_STATUSLINE_CACHE_TTL_MS: '60000',
-        COLUMNS: '34',
+        COLUMNS: '46',
       },
     });
     assert.strictEqual(wrappedStatus.status, 0, wrappedStatus.stderr);
@@ -300,7 +300,41 @@ async function main() {
     assert.strictEqual(wrappedLines.length, 2);
     assert.match(wrappedLines[0], /^GLM Test │ 5H .+ 10% @18:30$/);
     assert.match(wrappedLines[1], /^MCP .+ 20% │ Day 3K │ 30D 5\.98B$/);
-    assert.ok(wrappedLines.every((line) => line.length <= 34), wrappedStatus.stdout);
+    assert.ok(wrappedLines.every((line) => line.length <= 46), wrappedStatus.stdout);
+
+    const contextConfigFile = path.join(tempDir, 'context-wrap-config.json');
+    fs.writeFileSync(
+      contextConfigFile,
+      JSON.stringify(
+        {
+          layout: 'compact',
+          barWidth: 8,
+          display: ['plan', '5h', 'mcp', 'context', 'model', 'session', 'day', '30d'],
+        },
+        null,
+        2
+      )
+    );
+    const contextWrappedStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+      input: JSON.stringify({
+        model: { display_name: 'Sonnet' },
+        context_window: { used_percentage: 12, context_window_size: 200000 },
+        transcript_path: transcriptFile,
+      }),
+      env: {
+        ANTHROPIC_AUTH_TOKEN: 'test-token',
+        ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
+        GLM_STATUSLINE_CACHE_FILE: cacheFile,
+        GLM_STATUSLINE_CONFIG_FILE: contextConfigFile,
+        GLM_STATUSLINE_CACHE_TTL_MS: '60000',
+        COLUMNS: '80',
+      },
+    });
+    assert.strictEqual(contextWrappedStatus.status, 0, contextWrappedStatus.stderr);
+    const contextLines = contextWrappedStatus.stdout.trim().split('\n');
+    assert.ok(contextLines.length >= 2, contextWrappedStatus.stdout);
+    assert.match(contextLines.join('\n'), /Context .+ 12%/);
+    assert.doesNotMatch(contextLines[0], /Context .+$/);
 
     const preview = await runAsync(process.execPath, ['bin/glm-statusline.js', '--preview'], {
       input: JSON.stringify({

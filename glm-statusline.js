@@ -161,7 +161,7 @@ function readStatusConfig(env = process.env) {
 
   const barWidth = Number(fileConfig.barWidth ?? env.GLM_STATUSLINE_BAR_WIDTH ?? BAR_WIDTH);
   const layout = String(fileConfig.layout || env.GLM_STATUSLINE_LAYOUT || 'compact').toLowerCase() === 'full' ? 'full' : 'compact';
-  const maxWidth = readMaxWidth(fileConfig, env);
+  const maxWidth = readMaxWidth(env);
 
   return {
     configPath,
@@ -172,15 +172,25 @@ function readStatusConfig(env = process.env) {
   };
 }
 
-function readMaxWidth(fileConfig, env) {
-  const raw = fileConfig.maxWidth ?? env.COLUMNS ?? process.stdout.columns;
+function readMaxWidth(env) {
+  const raw = env.COLUMNS ?? process.stdout.columns ?? 80;
   const value = Number(raw);
   if (!Number.isFinite(value) || value <= 0) return 0;
   return Math.max(20, Math.round(value));
 }
 
 function displayLength(value) {
-  return Array.from(String(value || '')).length;
+  let width = 0;
+  for (const char of Array.from(String(value || ''))) {
+    if (char === '█' || char === '░') {
+      width += 2;
+    } else if (/[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/u.test(char)) {
+      width += 2;
+    } else {
+      width += 1;
+    }
+  }
+  return width;
 }
 
 function wrapSegments(segments, maxWidth) {
