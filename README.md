@@ -11,6 +11,14 @@
 
 > **注意**：本项目无任何外部依赖，全部使用 Node.js 标准库（`fs`、`path`、`os`、`http`、`https`、`url`、`child_process`、`readline`、`assert`）。
 
+## 资料可靠性说明
+
+这个仓库同时包含三类内容，阅读时建议区分：
+
+- **官方文档事实**：Claude Code 插件、skill、status line、marketplace 等机制，来自 README 底部列出的 Claude Code 官方文档。
+- **本项目实现选择**：比如稳定 launcher、交互式字段选择、缓存文件位置，是为了让这个 GLM StatusLine 插件更容易安装、更新和学习。
+- **GLM / Z.ai API 兼容式解析**：`/api/monitor/usage/quota/limit` 和 `/api/monitor/usage/model-usage` 的返回结构可能随服务调整而变化。脚本会根据多种字段名做兼容式解析，测试中的 `test/fixtures/` 提供的是当前实现用来验证解析逻辑的样例，不代表官方固定 schema。
+
 ---
 
 ## 关于学习技术和使用 AI 的一些想法
@@ -238,10 +246,22 @@ npm test
 
 ### 1. 添加本地 marketplace
 
-在 Claude Code 中运行：
+先在仓库目录获取当前路径：
+
+```bash
+pwd
+```
+
+然后在 Claude Code 中运行，把 `<你的仓库绝对路径>` 替换为上一步输出的路径：
 
 ```text
-/plugin marketplace add /Users/bingqiangzhou/Workspaces/Projects/CCStatusline
+/plugin marketplace add <你的仓库绝对路径>
+```
+
+或者直接使用 GitHub 仓库路径（`owner/repo` 格式），跳过本地克隆：
+
+```text
+/plugin marketplace add bingqiangzhou/CCStatusline
 ```
 
 ### 2. 安装插件
@@ -414,6 +434,9 @@ CCStatusline/
 ├── docs/
 │   ├── claude-code-plugin-build-guide.md      # 插件构建过程文档
 │   └── claude-code-skills-and-extensions-guide.md  # Skill 与扩展能力文档
+├── lib/
+│   ├── display-fields.js            # 状态栏字段定义与配置归一化
+│   └── statusline-format.js         # 进度条、token、时间和自动换行格式化
 ├── notes/                           # Claude Code 插件系统学习笔记
 │   ├── 01-插件系统概览.md
 │   ├── 02-Skill.md
@@ -436,7 +459,8 @@ CCStatusline/
 │   ├── install/SKILL.md             # /glm-statusline:install
 │   ├── plan-details/SKILL.md        # /glm-statusline:plan-details
 │   └── uninstall/SKILL.md           # /glm-statusline:uninstall
-├── glm-statusline.js                # 核心脚本（单文件，约 1100 行）
+├── test/fixtures/                   # GLM / Z.ai monitor API 样例响应
+├── glm-statusline.js                # 状态栏核心编排脚本
 ├── package.json
 ├── CHANGELOG.md
 └── README.md

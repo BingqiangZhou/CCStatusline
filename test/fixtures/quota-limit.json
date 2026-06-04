@@ -1,0 +1,27 @@
+{
+  "data": {
+    "planName": "GLM Test",
+    "limits": [
+      {
+        "type": "TOKENS_LIMIT",
+        "percentage": 10,
+        "currentValue": 2000,
+        "usage": 20000,
+        "nextResetTime": 1780569000000
+      },
+      {
+        "type": "TIME_LIMIT",
+        "percentage": 20,
+        "currentValue": 3,
+        "usage": 30
+      },
+      {
+        "type": "WEEKLY_LIMIT",
+        "percentage": 30,
+        "currentValue": 300000,
+        "usage": 1000000,
+        "nextResetTime": 1780880400000
+      }
+    ]
+  }
+}

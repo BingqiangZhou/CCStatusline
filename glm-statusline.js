@@ -36,6 +36,18 @@ const os = require('os');
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
+const { DEFAULT_DISPLAY, normalizeDisplayList } = require('./lib/display-fields');
+const {
+  clampPercent,
+  formatAge,
+  formatLocalDateTime,
+  formatResetHHmm,
+  formatTimeHHmm,
+  formatTokens,
+  parseResetTime,
+  renderBar,
+  wrapSegments,
+} = require('./lib/statusline-format');
 
 const HOME = os.homedir();
 const CACHE_FILE = process.env.GLM_STATUSLINE_CACHE_FILE || path.join(HOME, '.claude', 'glm-statusline-cache.json');
@@ -43,9 +55,6 @@ const DEFAULT_CONFIG_FILE = path.join(HOME, '.claude', 'glm-statusline-config.js
 const DEFAULT_CONTEXT_WINDOW = 200000;
 const API_TIMEOUT_MS = Number(process.env.GLM_STATUSLINE_TIMEOUT_MS || 2200);
 const CACHE_TTL_MS = Number(process.env.GLM_STATUSLINE_CACHE_TTL_MS || 60_000);
-const BAR_WIDTH = 8;
-const DEFAULT_DISPLAY = ['5h', 'mcp', 'session', 'day'];
-const DISPLAY_FIELDS = ['plan', '5h', 'mcp', 'context', 'model', 'session', 'day', '30d'];
 
 const PLAN_KEYS = [
   'planName',
@@ -63,6 +72,12 @@ const PLAN_KEYS = [
   'edition',
 ];
 
+function debugLog(label, err) {
+  if (process.env.GLM_STATUSLINE_DEBUG !== '1') return;
+  const message = err && err.message ? err.message : String(err || 'unknown error');
+  console.error(`[glm-statusline] ${label}: ${message}`);
+}
+
 function expandHome(input) {
   if (!input || typeof input !== 'string') return input;
   if (input === '~') return HOME;
@@ -74,23 +89,10 @@ function readJsonFile(filePath) {
   try {
     if (!filePath || !fs.existsSync(filePath)) return null;
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch (_) {
+  } catch (err) {
+    debugLog(`cannot parse JSON file ${filePath}`, err);
     return null;
   }
-}
-
-function normalizeDisplayList(value) {
-  const raw = Array.isArray(value) ? value : [];
-  const seen = new Set();
-  const display = [];
-  for (const item of raw) {
-    const normalized = DISPLAY_FIELDS.includes(item) ? item : '';
-    if (normalized && !seen.has(normalized)) {
-      seen.add(normalized);
-      display.push(normalized);
-    }
-  }
-  return display;
 }
 
 function readStatusConfig(env = process.env) {
@@ -113,38 +115,6 @@ function readMaxWidth(env) {
   const value = Number(raw);
   if (!Number.isFinite(value) || value <= 0) return 0;
   return Math.max(20, Math.round(value));
-}
-
-function displayLength(value) {
-  let width = 0;
-  for (const char of Array.from(String(value || ''))) {
-    if (char === '█' || char === '░') {
-      width += 2;
-    } else if (/[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/u.test(char)) {
-      width += 2;
-    } else {
-      width += 1;
-    }
-  }
-  return width;
-}
-
-function wrapSegments(segments, maxWidth) {
-  if (!Number.isFinite(maxWidth) || maxWidth <= 0) return segments.join(' │ ');
-
-  const lines = [];
-  let current = '';
-  for (const segment of segments) {
-    const next = current ? `${current} │ ${segment}` : segment;
-    if (current && displayLength(next) > maxWidth) {
-      lines.push(current);
-      current = segment;
-    } else {
-      current = next;
-    }
-  }
-  if (current) lines.push(current);
-  return lines.join('\n');
 }
 
 function mergeEnvFromSettings(sessionContext) {
@@ -236,7 +206,8 @@ function saveCache(cache) {
   try {
     fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
     fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
-  } catch (_) {
+  } catch (err) {
+    debugLog(`cannot write cache ${CACHE_FILE}`, err);
     // Ignore cache write errors; statusLine should never break Claude Code.
   }
 }
@@ -396,33 +367,6 @@ function readResetTime(obj) {
   return null;
 }
 
-function parseResetTime(value) {
-  if (value instanceof Date && Number.isFinite(value.getTime())) return value.getTime();
-
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-    return value < 10_000_000_000 ? value * 1000 : value;
-  }
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const numeric = Number(trimmed);
-    if (Number.isFinite(numeric) && numeric > 0) {
-      return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
-    }
-    const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
-    const parsed = Date.parse(normalized);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-
-  return null;
-}
-
-function clampPercent(value) {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, Math.round(value)));
-}
-
 function classifyLimit(limit) {
   const text = JSON.stringify({
     type: limit.type,
@@ -553,7 +497,8 @@ async function fetchQuota(env) {
     cache[cacheKey] = { ts: Date.now(), value };
     saveCache(cache);
     return { ...fallback, ...value };
-  } catch (_) {
+  } catch (err) {
+    debugLog('quota API error', err);
     if (cache[cacheKey]?.value) return { ...fallback, ...cache[cacheKey].value };
     return fallback;
   }
@@ -819,68 +764,11 @@ async function fetchModelUsage(env, period) {
     cache[cacheKey] = { ts: Date.now(), value };
     saveCache(cache);
     return value;
-  } catch (_) {
+  } catch (err) {
+    debugLog(`model usage API error (${period})`, err);
     if (cache[cacheKey]?.value !== undefined) return cache[cacheKey].value;
     return null;
   }
-}
-
-function renderBar(percent, width = BAR_WIDTH) {
-  const p = clampPercent(percent);
-  const filled = Math.max(0, Math.min(width, Math.round((p / 100) * width)));
-  return `${'█'.repeat(filled)}${'░'.repeat(width - filled)} ${p}%`;
-}
-
-function formatTokens(value) {
-  const n = Number(value) || 0;
-  if (n >= 1_000_000_000) return `${trimLargeNumber(n / 1_000_000_000)}B`;
-  if (n >= 1_000_000) return `${trimNumber(n / 1_000_000)}M`;
-  if (n >= 1_000) return `${trimNumber(n / 1_000)}K`;
-  return String(Math.round(n));
-}
-
-function trimLargeNumber(value) {
-  const rounded = value < 10 ? value.toFixed(2) : value < 100 ? value.toFixed(1) : value.toFixed(0);
-  return rounded.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
-}
-
-function trimNumber(value) {
-  const rounded = value >= 100 ? value.toFixed(0) : value.toFixed(1);
-  return rounded.replace(/\.0$/, '');
-}
-
-function formatLocalDateTime(ms) {
-  if (!Number.isFinite(ms)) return '--';
-  const date = new Date(ms);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
-    date.getDate()
-  ).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(
-    2,
-    '0'
-  )}`;
-}
-
-function formatTimeHHmm(ms) {
-  const value = ms instanceof Date ? ms.getTime() : Number(ms);
-  if (!Number.isFinite(value)) return '--:--';
-  const date = new Date(value);
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-}
-
-function formatResetHHmm(timestamp) {
-  const ms = parseResetTime(timestamp);
-  if (ms === null) return '--:--';
-  return formatTimeHHmm(ms);
-}
-
-function formatAge(ms) {
-  if (!Number.isFinite(ms) || ms < 0) return 'unknown';
-  const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  return `${hours}h ago`;
 }
 
 function formatLimitLine(label, detail, options = {}) {

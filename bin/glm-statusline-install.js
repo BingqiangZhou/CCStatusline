@@ -6,6 +6,13 @@ const os = require('os');
 const path = require('path');
 const readline = require('readline');
 const { spawnSync } = require('child_process');
+const {
+  DEFAULT_DISPLAY,
+  DISPLAY_FIELDS: FIELD_ORDER,
+  FIELD_LABELS,
+  normalizeDisplayList,
+  orderDisplay,
+} = require('../lib/display-fields');
 
 const PLUGIN_ROOT = path.resolve(__dirname, '..');
 const LAUNCHER = path.join(PLUGIN_ROOT, 'bin', 'glm-statusline.js');
@@ -22,17 +29,6 @@ const PLUGIN_NAME = 'glm-statusline';
 const PLUGIN_CACHE_ROOT =
   process.env.GLM_STATUSLINE_PLUGIN_CACHE_ROOT ||
   path.join(os.homedir(), '.claude', 'plugins', 'cache', MARKETPLACE_NAME, PLUGIN_NAME);
-const FIELD_ORDER = ['plan', '5h', 'mcp', 'context', 'model', 'session', 'day', '30d'];
-const FIELD_LABELS = {
-  plan: 'plan',
-  '5h': '5h quota',
-  mcp: 'mcp/tools',
-  context: 'context',
-  model: 'model',
-  session: 'session tokens',
-  day: 'day tokens',
-  '30d': '30d tokens',
-};
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
@@ -67,20 +63,6 @@ function readJsonFile(filePath) {
   }
 }
 
-function normalizeDisplayList(value) {
-  const raw = Array.isArray(value) ? value : [];
-  const display = [];
-  const seen = new Set();
-  for (const item of raw) {
-    const normalized = FIELD_ORDER.includes(item) ? item : '';
-    if (normalized && !seen.has(normalized)) {
-      seen.add(normalized);
-      display.push(normalized);
-    }
-  }
-  return display;
-}
-
 function writeConfig(config) {
   fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
   fs.writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`);
@@ -88,16 +70,10 @@ function writeConfig(config) {
 
 function baseConfigFromFile() {
   const previous = readJsonFile(CONFIG_FILE);
+  const display = normalizeDisplayList(previous.display);
   return {
-    display: normalizeDisplayList(previous.display).length
-      ? normalizeDisplayList(previous.display)
-      : ['5h', 'mcp', 'session', 'day'],
+    display: display.length ? display : [...DEFAULT_DISPLAY],
   };
-}
-
-function orderInteractiveDisplay(display) {
-  const selected = new Set(display);
-  return FIELD_ORDER.filter((field) => selected.has(field));
 }
 
 function backupSettings() {
@@ -224,7 +200,7 @@ function toggleField(config, input) {
   } else {
     display.push(field);
   }
-  return { ...config, display: orderInteractiveDisplay(display) };
+  return { ...config, display: orderDisplay(display) };
 }
 
 async function interactiveConfigure() {

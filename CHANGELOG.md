@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.6 - 2026-06-04
+
+- Extracted display field definitions into `lib/display-fields.js` and formatting utilities into `lib/statusline-format.js`.
+- Added test fixtures for GLM / Z.ai API responses (`test/fixtures/`).
+- Updated README: added GitHub `owner/repo` marketplace install option alongside local path.
+- Updated plugin build guide documentation.
+
 ## 1.2.5 - 2026-06-04
 
 - Changed the default status line fields to `5h`, `mcp`, `session`, and `day`.

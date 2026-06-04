@@ -64,20 +64,41 @@ function close(server) {
   });
 }
 
-async function main() {
+function verifyProjectMetadata() {
+  const packageJson = readJson('package.json');
+  assert.match(packageJson.version, /^\d+\.\d+\.\d+$/);
+  const expectedVersion = packageJson.version;
+
   const plugin = readJson('.claude-plugin/plugin.json');
   assert.strictEqual(plugin.name, 'glm-statusline');
   assert.match(plugin.description, /GLM/i);
-  assert.strictEqual(plugin.version, '1.2.5');
+  assert.strictEqual(plugin.version, expectedVersion);
 
   const marketplace = readJson('.claude-plugin/marketplace.json');
   assert.strictEqual(marketplace.name, 'bingqiangzhou-tools');
   assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.source === './'));
-  assert.strictEqual(marketplace.version, '1.2.5');
-  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.2.5'));
+  assert.strictEqual(marketplace.version, expectedVersion);
+  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === expectedVersion));
 
-  const packageJson = readJson('package.json');
-  assert.strictEqual(packageJson.version, '1.2.5');
+  const verifySource = fs.readFileSync(__filename, 'utf8');
+  assert.doesNotMatch(
+    verifySource,
+    /assert\.strictEqual\([^,\n]+\.version,\s*['"][0-9]+\.[0-9]+\.[0-9]+['"]\)/,
+    'version checks should compare manifests to package.json instead of hardcoding a release number'
+  );
+
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  const buildGuide = fs.readFileSync(path.join(root, 'docs/claude-code-plugin-build-guide.md'), 'utf8');
+  assert.doesNotMatch(
+    `${readme}\n${buildGuide}`,
+    /\/Users\/[^`\s]+\/CCStatusline/,
+    'learner-facing docs should not contain a machine-specific absolute path'
+  );
+  assert.match(readme, /pwd/, 'README should tell learners how to get their local marketplace path');
+  assert.match(readme, /资料可靠性说明/, 'README should separate documented facts from API compatibility assumptions');
+  assert.match(readme, /兼容式解析/, 'README should describe the GLM monitor API parser as compatibility parsing');
+  assert.match(readme, /test\/fixtures/, 'README file tree should include API fixtures for learners');
+  assert.match(readme, /lib\//, 'README file tree should include shared library modules');
 
   assertFile('bin/glm-statusline.js');
   assertFile('bin/glm-statusline-install.js');
@@ -87,6 +108,9 @@ async function main() {
   assertFile('skills/uninstall/SKILL.md');
   assertFile('docs/claude-code-plugin-build-guide.md');
   assertFile('docs/claude-code-skills-and-extensions-guide.md');
+  assertFile('test/fixtures/quota-limit.json');
+  assertFile('test/fixtures/model-usage-day.json');
+  assertFile('test/fixtures/model-usage-month.json');
 
   const configureSkill = fs.readFileSync(path.join(root, 'skills/configure/SKILL.md'), 'utf8');
   const installSkill = fs.readFileSync(path.join(root, 'skills/install/SKILL.md'), 'utf8');
@@ -106,8 +130,9 @@ async function main() {
   ]) {
     assert.ok(skillsGuide.includes(heading), `skills guide should include ${heading}`);
   }
+}
 
-  const isolatedDefaultConfigFile = path.join(os.tmpdir(), `missing-glm-statusline-config-${process.pid}.json`);
+function verifyDefaultStatusLine(isolatedDefaultConfigFile) {
   const status = run(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({
       model: { display_name: 'Sonnet' },
@@ -132,11 +157,9 @@ async function main() {
   assert.doesNotMatch(status.stdout, /Day:/);
   assert.doesNotMatch(status.stdout, /30D:/);
   assert.strictEqual(status.stdout.trim().split('\n').length, 1);
+}
 
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glm-statusline-plugin-'));
-  const transcriptFile = path.join(tempDir, 'transcript.jsonl');
-  const cacheFile = path.join(tempDir, 'glm-statusline-cache.json');
-  const configFile = path.join(tempDir, 'glm-statusline-config.json');
+function writeTranscriptFixture(transcriptFile) {
   fs.writeFileSync(
     transcriptFile,
     `${JSON.stringify({
@@ -151,61 +174,37 @@ async function main() {
       },
     })}\n`
   );
+}
 
-  const requests = [];
-  const server = http.createServer((req, res) => {
+function createFixtureApiServer(requests) {
+  const quotaFixture = readJson('test/fixtures/quota-limit.json');
+  const dayUsageFixture = readJson('test/fixtures/model-usage-day.json');
+  const monthUsageFixture = readJson('test/fixtures/model-usage-month.json');
+
+  return http.createServer((req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
     requests.push(url);
     res.setHeader('Content-Type', 'application/json');
 
     if (url.pathname === '/api/monitor/usage/quota/limit') {
-      res.end(
-        JSON.stringify({
-          data: {
-            planName: 'GLM Test',
-            limits: [
-              {
-                type: 'TOKENS_LIMIT',
-                percentage: 10,
-                currentValue: 2_000,
-                usage: 20_000,
-                nextResetTime: new Date(2026, 5, 4, 18, 30, 0).getTime(),
-              },
-              { type: 'TIME_LIMIT', percentage: 20, currentValue: 3, usage: 30 },
-              {
-                type: 'WEEKLY_LIMIT',
-                percentage: 30,
-                currentValue: 300_000,
-                usage: 1_000_000,
-                nextResetTime: new Date(2026, 5, 8, 9, 0, 0).getTime(),
-              },
-            ],
-          },
-        })
-      );
+      res.end(JSON.stringify(quotaFixture));
       return;
     }
 
     if (url.pathname === '/api/monitor/usage/model-usage') {
       const startTime = url.searchParams.get('startTime') || '';
-      const value = /\d{4}-\d{2}-\d{2} 00:00:00/.test(startTime) ? 3000 : 5_983_083_962;
-      res.end(
-        JSON.stringify({
-          data: {
-            tokensUsage: [value],
-            totalUsage: {
-              totalTokensUsage: value,
-            },
-          },
-        })
-      );
+      res.end(JSON.stringify(/\d{4}-\d{2}-\d{2} 00:00:00/.test(startTime) ? dayUsageFixture : monthUsageFixture));
       return;
     }
 
     res.statusCode = 404;
     res.end(JSON.stringify({ error: 'not found' }));
   });
+}
 
+async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaultConfigFile, tempDir, transcriptFile }) {
+  const requests = [];
+  const server = createFixtureApiServer(requests);
   const port = await listen(server);
   try {
     const apiUsage = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
@@ -362,7 +361,55 @@ async function main() {
   } finally {
     await close(server);
   }
+}
 
+function createFailingApiServer() {
+  return http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (url.pathname === '/api/monitor/usage/quota/limit') {
+      res.statusCode = 500;
+      res.end('quota exploded');
+      return;
+    }
+    if (url.pathname === '/api/monitor/usage/model-usage') {
+      res.statusCode = 500;
+      res.end('usage exploded');
+      return;
+    }
+    res.statusCode = 404;
+    res.end('not found');
+  });
+}
+
+async function verifyDebugLogging({ configFile, tempDir, transcriptFile }) {
+  const debugServer = createFailingApiServer();
+  const debugPort = await listen(debugServer);
+  try {
+    const debugStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+      input: JSON.stringify({
+        model: { display_name: 'Sonnet' },
+        context_window: { used_percentage: 1, context_window_size: 200000 },
+        transcript_path: transcriptFile,
+      }),
+      env: {
+        ANTHROPIC_AUTH_TOKEN: 'test-token',
+        ANTHROPIC_BASE_URL: `http://127.0.0.1:${debugPort}/api/anthropic`,
+        GLM_STATUSLINE_CACHE_FILE: path.join(tempDir, 'debug-cache.json'),
+        GLM_STATUSLINE_CONFIG_FILE: configFile,
+        GLM_STATUSLINE_CACHE_TTL_MS: '1',
+        GLM_STATUSLINE_DEBUG: '1',
+        COLUMNS: '120',
+      },
+    });
+    assert.strictEqual(debugStatus.status, 0, debugStatus.stderr);
+    assert.match(debugStatus.stderr, /quota API error/i);
+    assert.match(debugStatus.stderr, /model usage API error/i);
+  } finally {
+    await close(debugServer);
+  }
+}
+
+function verifyInstallerWorkflow({ isolatedDefaultConfigFile, tempDir }) {
   const settingsFile = path.join(tempDir, 'settings.json');
   const launcherFile = path.join(tempDir, 'glm-statusline-launcher.js');
   const installConfigFile = path.join(tempDir, 'install-config.json');
@@ -446,7 +493,24 @@ async function main() {
   const uninstalledSettings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
   assert.strictEqual(uninstalledSettings.statusLine, undefined);
   assert.ok(!fs.existsSync(launcherFile), 'uninstall should remove the stable launcher file');
+}
 
+async function main() {
+  verifyProjectMetadata();
+
+  const isolatedDefaultConfigFile = path.join(os.tmpdir(), `missing-glm-statusline-config-${process.pid}.json`);
+  verifyDefaultStatusLine(isolatedDefaultConfigFile);
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glm-statusline-plugin-'));
+  const transcriptFile = path.join(tempDir, 'transcript.jsonl');
+  const cacheFile = path.join(tempDir, 'glm-statusline-cache.json');
+  const configFile = path.join(tempDir, 'glm-statusline-config.json');
+  writeTranscriptFixture(transcriptFile);
+  const context = { cacheFile, configFile, isolatedDefaultConfigFile, tempDir, transcriptFile };
+
+  await verifyApiBackedStatusLine(context);
+  await verifyDebugLogging(context);
+  verifyInstallerWorkflow(context);
   console.log('All plugin verification checks passed.');
 }
 
