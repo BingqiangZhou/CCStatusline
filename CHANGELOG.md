@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.5 - 2026-06-04
+
+- Changed the default status line fields to `5h`, `mcp`, `session`, and `day`.
+
 ## 1.2.4 - 2026-06-04
 
 - Simplified configuration to the no-argument interactive selector and a single `display` config array.

@@ -5,7 +5,7 @@
  * A single-file Claude Code statusLine script for GLM Coding Plan.
  *
  * Output:
- *   5H ██░░░░░░ 22% @18:30 │ Context █████░░░ 68% │ Session 160K
+ *   5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% │ Session 160K │ Day 42.8M
  *
  * Details:
  *   glm-statusline.js --plan-details
@@ -44,7 +44,7 @@ const DEFAULT_CONTEXT_WINDOW = 200000;
 const API_TIMEOUT_MS = Number(process.env.GLM_STATUSLINE_TIMEOUT_MS || 2200);
 const CACHE_TTL_MS = Number(process.env.GLM_STATUSLINE_CACHE_TTL_MS || 60_000);
 const BAR_WIDTH = 8;
-const DEFAULT_DISPLAY = ['5h', 'context', 'session'];
+const DEFAULT_DISPLAY = ['5h', 'mcp', 'session', 'day'];
 const DISPLAY_FIELDS = ['plan', '5h', 'mcp', 'context', 'model', 'session', 'day', '30d'];
 
 const PLAN_KEYS = [
@@ -1016,7 +1016,7 @@ main().catch((err) => {
     console.log('GLM Coding Plan\nPlan: GLM\n5H: unavailable\nMCP: unavailable\nDay: 0 tokens\n30D: 0 tokens\nAPI: not configured · key missing · cache unknown');
     return;
   }
-  console.log(`5H ${renderBar(0)} @--:-- │ Context ${renderBar(0)} │ Session 0`);
+  console.log(`5H ${renderBar(0)} @--:-- │ MCP ${renderBar(0)} │ Session 0 │ Day 0`);
   if (process.env.GLM_STATUSLINE_DEBUG === '1') {
     console.error(msg);
   }

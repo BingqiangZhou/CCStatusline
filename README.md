@@ -66,15 +66,16 @@
 当前状态栏输出类似：
 
 ```text
-5H ██░░░░░░ 22% @18:30 │ Context █████░░░ 68% │ Session 160K
+5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% │ Session 160K │ Day 42.8M
 ```
 
 默认显示内容包括：
 
 - `5H`：GLM Coding Plan 的 5 小时额度使用率，带可视化进度条和重置时间。
 - `@HH:mm`：优先显示 API 返回的下一次 5H 重置时间；接口没有返回时，显示最近一次成功刷新 quota 的时间。
-- `Context`：当前 Claude Code 会话上下文占用比例。
+- `MCP`：MCP/tools 额度使用率，带可视化进度条。
 - `Session`：当前 transcript 中累计的 token 数。
+- `Day`：当天 GLM / Z.ai token 用量。
 
 状态栏显示字段可以配置。支持的全部字段：
 
@@ -89,7 +90,7 @@
 | `day` | 当天 GLM / Z.ai token 用量 |
 | `30d` | 近 30 天 GLM / Z.ai token 用量 |
 
-默认显示 `5h`、`context`、`session`。
+默认显示 `5h`、`mcp`、`session`、`day`。
 
 ### 2. GLM / Z.ai API 用量读取
 
@@ -162,11 +163,14 @@ API: api.z.ai · key configured · cache 12s ago
 Select fields to show. Type a number to toggle it, q to finish.
 1. [x] plan
 2. [x] 5h quota
-3. [ ] mcp/tools
-4. [x] context
+3. [x] mcp/tools
+4. [ ] context
+5. [ ] model
+6. [x] session tokens
+7. [x] day tokens
 
 Preview:
-GLM Lite │ 5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% │ Context █████░░░ 68% │ Session 160K
+GLM Lite │ 5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% │ Session 160K │ Day 42.8M
 ```
 
 配置只有一种主路径：无参数运行 `/glm-statusline:configure`，输入数字切换字段，每次切换都会自动保存并预览。
@@ -302,7 +306,7 @@ npm test
 如果只想保留最简洁显示：
 
 ```text
-运行 /glm-statusline:configure 后，只保留 5h、context、session 三项为选中状态，然后输入 q 结束。
+运行 /glm-statusline:configure 后，只保留 5h、mcp、session、day 四项为选中状态，然后输入 q 结束。
 ```
 
 ### 6. 查看详细用量

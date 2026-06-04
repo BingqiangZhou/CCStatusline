@@ -68,16 +68,16 @@ async function main() {
   const plugin = readJson('.claude-plugin/plugin.json');
   assert.strictEqual(plugin.name, 'glm-statusline');
   assert.match(plugin.description, /GLM/i);
-  assert.strictEqual(plugin.version, '1.2.4');
+  assert.strictEqual(plugin.version, '1.2.5');
 
   const marketplace = readJson('.claude-plugin/marketplace.json');
   assert.strictEqual(marketplace.name, 'bingqiangzhou-tools');
   assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.source === './'));
-  assert.strictEqual(marketplace.version, '1.2.4');
-  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.2.4'));
+  assert.strictEqual(marketplace.version, '1.2.5');
+  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.2.5'));
 
   const packageJson = readJson('package.json');
-  assert.strictEqual(packageJson.version, '1.2.4');
+  assert.strictEqual(packageJson.version, '1.2.5');
 
   assertFile('bin/glm-statusline.js');
   assertFile('bin/glm-statusline-install.js');
@@ -124,8 +124,10 @@ async function main() {
   });
   assert.strictEqual(status.status, 0, status.stderr);
   assert.match(status.stdout, /5H/);
-  assert.match(status.stdout, /Context/);
+  assert.match(status.stdout, /MCP/);
   assert.match(status.stdout, /Session 0/);
+  assert.match(status.stdout, /Day 0/);
+  assert.doesNotMatch(status.stdout, /Context/);
   assert.doesNotMatch(status.stdout, /Sess:/);
   assert.doesNotMatch(status.stdout, /Day:/);
   assert.doesNotMatch(status.stdout, /30D:/);
@@ -222,7 +224,8 @@ async function main() {
       },
     });
     assert.strictEqual(apiUsage.status, 0, apiUsage.stderr);
-    assert.match(apiUsage.stdout, /^5H .+ 10% @18:30 │ Context .+ 1% │ Session 2K\s*$/);
+    assert.match(apiUsage.stdout, /^5H .+ 10% @18:30 │ MCP .+ 20% │ Session 2K │ Day 3K\s*$/);
+    assert.doesNotMatch(apiUsage.stdout, /Context/);
     assert.doesNotMatch(apiUsage.stdout, /Sess:/);
     assert.doesNotMatch(apiUsage.stdout, /30D:/);
     assert.strictEqual(apiUsage.stdout.trim().split('\n').length, 1);
@@ -398,7 +401,7 @@ async function main() {
 
   const interactiveConfigFile = path.join(tempDir, 'interactive-config.json');
   const interactive = run(process.execPath, ['bin/glm-statusline-install.js', 'configure'], {
-    input: '1\n3\nq\n',
+    input: '1\nq\n',
     env: {
       GLM_STATUSLINE_CONFIG_FILE: interactiveConfigFile,
       GLM_STATUSLINE_CACHE_FILE: path.join(tempDir, 'interactive-cache.json'),
@@ -409,11 +412,11 @@ async function main() {
   });
   assert.strictEqual(interactive.status, 0, interactive.stderr);
   assert.match(interactive.stdout, /Select fields to show/);
-  assert.ok((interactive.stdout.match(/Preview:/g) || []).length >= 3);
+  assert.ok((interactive.stdout.match(/Preview:/g) || []).length >= 2);
   assert.match(interactive.stdout, /1\. \[x\] plan/);
   assert.match(interactive.stdout, /3\. \[x\] mcp/);
   const interactiveConfig = JSON.parse(fs.readFileSync(interactiveConfigFile, 'utf8'));
-  assert.deepStrictEqual(interactiveConfig.display, ['plan', '5h', 'mcp', 'context', 'session']);
+  assert.deepStrictEqual(interactiveConfig.display, ['plan', '5h', 'mcp', 'session', 'day']);
 
   const launcherStatus = run(process.execPath, [launcherFile], {
     input: JSON.stringify({
@@ -430,7 +433,8 @@ async function main() {
     },
   });
   assert.strictEqual(launcherStatus.status, 0, launcherStatus.stderr);
-  assert.match(launcherStatus.stdout, /^5H .+ @--:-- │ Context .+ 12% │ Session 0\s*$/);
+  assert.match(launcherStatus.stdout, /^5H .+ @--:-- │ MCP .+ 0% │ Session 0 │ Day 0\s*$/);
+  assert.doesNotMatch(launcherStatus.stdout, /Context/);
 
   const uninstall = run(process.execPath, ['bin/glm-statusline-install.js', 'uninstall'], {
     env: {

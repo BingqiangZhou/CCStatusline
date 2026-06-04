@@ -2,7 +2,7 @@
   "name": "glm-statusline",
   "displayName": "GLM StatusLine",
   "description": "Configurable GLM / Z.ai usage status line for Claude Code. Displays 5H quota, MCP/tools quota, context usage, session tokens, day/30D usage, and model name. Includes interactive field selector, terminal-width auto-wrapping, and a plan-details command.",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "author": {
     "name": "CCStatusline"
   },

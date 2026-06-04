@@ -91,7 +91,7 @@ function baseConfigFromFile() {
   return {
     display: normalizeDisplayList(previous.display).length
       ? normalizeDisplayList(previous.display)
-      : ['5h', 'context', 'session'],
+      : ['5h', 'mcp', 'session', 'day'],
   };
 }
 

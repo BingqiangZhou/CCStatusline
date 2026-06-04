@@ -117,7 +117,7 @@ glm-statusline-install.js uninstall
 最终输出形态：
 
 ```text
-5H ██░░░░░░ 22% @18:30 │ Context █████░░░ 68% │ Session 160K
+5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% │ Session 160K │ Day 42.8M
 ```
 
 `/glm-statusline:plan-details` 输出套餐详情，例如：
@@ -168,7 +168,7 @@ npm test
 - `.claude-plugin/marketplace.json` 包含 `glm-statusline`，且 source 为当前目录 `./`。
 - `package.json`、`plugin.json`、`marketplace.json` 版本号一致。
 - `bin/`、`skills/` 和文档文件存在。
-- `bin/glm-statusline.js` 能在模拟 Claude Code stdin 下输出一行包含 `5H`、`Context`、`Session` 的状态栏。
+- `bin/glm-statusline.js` 能在模拟 Claude Code stdin 下输出一行包含 `5H`、`MCP`、`Session`、`Day` 的状态栏。
 - 启动本地 HTTP mock server 测试 API 集成（quota + model-usage 端点）。
 - `bin/glm-statusline.js` 能根据 `~/.claude/glm-statusline-config.json` 或测试指定的 config 文件切换显示字段。
 - `bin/glm-statusline.js` 能根据终端宽度在字段边界自动换行。
