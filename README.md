@@ -2,7 +2,7 @@
 
 This project packages `glm-statusline.js` as a Claude Code plugin.
 
-The status line shows GLM Coding Plan quota, MCP/tool usage, current context usage, the mapped GLM model, current session tokens, day tokens, and recent 30-day tokens.
+The status line shows GLM Coding Plan quota, the 5H reset time when the API provides it, MCP/tool usage, current context usage, the mapped GLM model, current session tokens, day tokens, and recent 30-day tokens.
 
 ## Local Development
 

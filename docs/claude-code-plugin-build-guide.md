@@ -101,14 +101,15 @@ glm-statusline-install.js uninstall
 - 模型映射：`mapClaudeModelToGlm()` 根据 Claude Code 当前显示的 `Opus`、`Sonnet`、`Haiku`，读取 `ANTHROPIC_DEFAULT_*_MODEL`，显示真实 GLM 模型名。
 - Context 统计：`getContextInfo()` 优先读取 stdin 的 `context_window.used_percentage` 和 `context_window.context_window_size`，缺失时用当前 transcript token 数做兜底估算。
 - Transcript token 统计：`readJsonlTokenStats()` 解析当前会话 JSONL transcript，把 input、output、cache creation、cache read token 累加成 `Sess`。
-- Day/Mon 统计：`fetchModelUsage()` 优先请求 `/api/monitor/usage/model-usage`；失败时 `scanLocalUsage()` 扫描 `~/.claude/projects/**/*.jsonl` 统计当天和近 30 天 token。
+- Day/30D 统计：`fetchModelUsage()` 请求智谱/Z.ai `/api/monitor/usage/model-usage`，按官方 `yyyy-MM-dd HH:mm:ss` 时间格式传入当天和近 30 天窗口；接口不可用或未配置 token/base URL 时显示 0。
+- 5H 更新时间：第二行开头显示 `5H@HH:mm`；优先使用 quota 接口 5H limit 的 `nextResetTime`，接口未返回时使用 quota 数据最后一次成功刷新的时间。
 - 渲染：`renderBar()`、`formatTokens()`、`formatContextMax()` 和 `formatTimeHHmm()` 把数据格式化为两行状态栏文本。
 
 最终输出形态：
 
 ```text
 GLM Lite │ 5H ██░░░░░░ 22% │ MCP ███░░░░░ 28% │ Context █████░░░ 68% (GLM-5 / 200K)
-14:47 ｜ Sess:160.0K │ Day:42.8M │ Mon:979.2M
+5H@18:30 ｜ Sess:160.0K │ Day:42.8M │ 30D:979.2M
 ```
 
 脚本的容错策略比较适合 status line：API 失败时用缓存，缓存没有时显示 0%；脚本崩溃时也会输出一个安全兜底状态栏，避免 Claude Code 界面被状态栏错误影响。
@@ -167,7 +168,6 @@ GLM/Z.ai 相关配置仍然放在 Claude Code settings 的 `env` 中：
 可选环境变量：
 
 - `GLM_STATUSLINE_PLAN`：API 不返回套餐名时的手动兜底。
-- `GLM_STATUSLINE_USAGE_SOURCE=local`：强制 Day/Mon 使用本地 transcript 统计。
 - `GLM_STATUSLINE_CACHE_TTL_MS=60000`：调整 API 缓存时间。
 - `GLM_STATUSLINE_TIMEOUT_MS=2200`：调整 API 超时。
 - `GLM_STATUSLINE_BAR_WIDTH=8`：调整进度条宽度。

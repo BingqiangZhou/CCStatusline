@@ -6,7 +6,7 @@
  *
  * Output:
  *   GLM Lite │ 5H ██░░░░░░ 22% │ MCP ███░░░░░ 28% │ Context █████░░░ 68% (GLM-5 / 200K)
- *   14:47 ｜ Sess:160.0K │ Day:42.8M │ Mon:979.2M
+ *   5H@18:30 ｜ Sess:160.0K │ Day:42.8M │ 30D:979.2M
  *
  * Usage in ~/.claude/settings.json:
  * {
@@ -244,6 +244,53 @@ function readPercent(obj) {
   return null;
 }
 
+function readResetTime(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  const keys = [
+    'nextResetTime',
+    'next_reset_time',
+    'resetTime',
+    'reset_time',
+    'resetAt',
+    'reset_at',
+    'renewalTime',
+    'renewal_time',
+    'expiredTime',
+    'expireTime',
+  ];
+
+  for (const key of keys) {
+    const value = obj[key];
+    if (value === undefined || value === null || value === '') continue;
+    const parsed = parseResetTime(value);
+    if (parsed !== null) return parsed;
+  }
+
+  return null;
+}
+
+function parseResetTime(value) {
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.getTime();
+
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value < 10_000_000_000 ? value * 1000 : value;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+    }
+    const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
+    const parsed = Date.parse(normalized);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  return null;
+}
+
 function clampPercent(value) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -270,6 +317,8 @@ function extractQuotaData(json) {
   const result = {
     planName: normalizePlanName(planRaw),
     fiveHourPercent: null,
+    fiveHourResetTime: null,
+    fiveHourUpdateTime: null,
     mcpPercent: null,
   };
 
@@ -283,6 +332,9 @@ function extractQuotaData(json) {
     if (percent === null) continue;
     if (kind === 'fiveHour' && result.fiveHourPercent === null) {
       result.fiveHourPercent = percent;
+    }
+    if (kind === 'fiveHour' && result.fiveHourResetTime === null) {
+      result.fiveHourResetTime = readResetTime(item);
     }
     if (kind === 'mcp' && result.mcpPercent === null) {
       result.mcpPercent = percent;
@@ -310,6 +362,8 @@ async function fetchQuota(env) {
   const fallback = {
     planName: fallbackPlan || 'GLM',
     fiveHourPercent: null,
+    fiveHourResetTime: null,
+    fiveHourUpdateTime: null,
     mcpPercent: null,
   };
 
@@ -324,7 +378,9 @@ async function fetchQuota(env) {
   try {
     const json = await httpJson(`${baseRoot}/api/monitor/usage/quota/limit`, authToken);
     const value = extractQuotaData(json);
+    const fetchedAt = Date.now();
     if (!value.planName) value.planName = fallback.planName;
+    value.fiveHourUpdateTime = value.fiveHourResetTime || fetchedAt;
     cache[cacheKey] = { ts: Date.now(), value };
     saveCache(cache);
     return { ...fallback, ...value };
@@ -432,6 +488,10 @@ function tokenTotalFromUsage(usage) {
     'outputTokens',
     'cacheCreationInputTokens',
     'cacheReadInputTokens',
+    'promptTokens',
+    'completionTokens',
+    'prompt_tokens',
+    'completion_tokens',
   ];
   let total = 0;
   for (const key of keys) {
@@ -480,62 +540,83 @@ function readJsonlTokenStats(filePath, options = {}) {
   }
 }
 
-function walkJsonlFiles(dir, out = [], depth = 0) {
-  if (!dir || depth > 8) return out;
-  try {
-    if (!fs.existsSync(dir)) return out;
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walkJsonlFiles(full, out, depth + 1);
-      } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
-        out.push(full);
-      }
-    }
-  } catch (_) {
-    // Ignore unreadable directories.
-  }
-  return out;
+function formatDateTimeForMonitorApi(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate()
+  ).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(
+    2,
+    '0'
+  )}:${String(date.getSeconds()).padStart(2, '0')}`;
 }
 
-function startOfLocalDay(d = new Date()) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-}
-
-function scanLocalUsage() {
-  const projectsDir = path.join(HOME, '.claude', 'projects');
-  const files = walkJsonlFiles(projectsDir);
-  const now = Date.now();
-  const dayStart = startOfLocalDay(new Date());
-  const monthStart = now - 30 * 24 * 60 * 60 * 1000;
-  let day = 0;
-  let month = 0;
-
-  for (const file of files) {
-    let stat;
-    try {
-      stat = fs.statSync(file);
-    } catch (_) {
-      continue;
+function recursiveFindNumberByKeys(obj, keys, depth = 0) {
+  if (!obj || depth > 7) return null;
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const found = recursiveFindNumberByKeys(item, keys, depth + 1);
+      if (found !== null) return found;
     }
-    if (stat.mtimeMs >= dayStart) day += readJsonlTokenStats(file, { startMs: dayStart, endMs: now + 1 });
-    if (stat.mtimeMs >= monthStart) month += readJsonlTokenStats(file, { startMs: monthStart, endMs: now + 1 });
+    return null;
+  }
+  if (typeof obj !== 'object') return null;
+
+  for (const key of keys) {
+    const value = Number(obj[key]);
+    if (Number.isFinite(value) && value > 0) return value;
   }
 
-  return { day, month };
+  for (const value of Object.values(obj)) {
+    const found = recursiveFindNumberByKeys(value, keys, depth + 1);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
+function recursiveFindNumberArrayByKeys(obj, keys, depth = 0) {
+  if (!obj || depth > 7) return null;
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const found = recursiveFindNumberArrayByKeys(item, keys, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof obj !== 'object') return null;
+
+  for (const key of keys) {
+    const value = obj[key];
+    if (Array.isArray(value)) {
+      const numbers = value.map((item) => Number(item)).filter((item) => Number.isFinite(item) && item > 0);
+      if (numbers.length) return numbers;
+    }
+  }
+
+  for (const value of Object.values(obj)) {
+    const found = recursiveFindNumberArrayByKeys(value, keys, depth + 1);
+    if (found) return found;
+  }
+  return null;
 }
 
 function extractTokenSumFromModelUsage(json) {
+  const root = json?.data || json;
+  const aggregate = recursiveFindNumberByKeys(root, [
+    'totalTokensUsage',
+    'totalTokenUsage',
+    'total_tokens_usage',
+    'totalTokenCount',
+    'total_tokens',
+  ]);
+  if (aggregate !== null) return aggregate;
+
+  const series = recursiveFindNumberArrayByKeys(root, ['tokensUsage', 'tokenUsage', 'tokens_usage']);
+  if (series) return series.reduce((sum, value) => sum + value, 0);
+
   const objects = [];
   collectObjects(json, objects, 0);
   let total = 0;
   for (const obj of objects) {
     total += tokenTotalFromUsage(obj);
-    const input = Number(obj.inputTokens ?? obj.input_tokens ?? obj.promptTokens ?? obj.prompt_tokens);
-    const output = Number(obj.outputTokens ?? obj.output_tokens ?? obj.completionTokens ?? obj.completion_tokens);
-    if (Number.isFinite(input) && input > 0) total += input;
-    if (Number.isFinite(output) && output > 0) total += output;
   }
   return total;
 }
@@ -550,16 +631,17 @@ async function fetchModelUsage(env, period) {
   if (isFresh(cache[cacheKey])) return cache[cacheKey].value;
 
   const now = new Date();
-  const endTime = now.toISOString();
+  const endTime = formatDateTimeForMonitorApi(now);
   const startDate = new Date(now.getTime());
   if (period === 'day') {
     startDate.setHours(0, 0, 0, 0);
   } else {
     startDate.setDate(startDate.getDate() - 30);
   }
+  const startTime = formatDateTimeForMonitorApi(startDate);
 
   const url = `${baseRoot}/api/monitor/usage/model-usage?startTime=${encodeURIComponent(
-    startDate.toISOString()
+    startTime
   )}&endTime=${encodeURIComponent(endTime)}`;
 
   try {
@@ -582,10 +664,15 @@ function renderBar(percent, width = BAR_WIDTH) {
 
 function formatTokens(value) {
   const n = Number(value) || 0;
-  if (n >= 1_000_000_000) return `${trimNumber(n / 1_000_000_000)}B`;
+  if (n >= 1_000_000_000) return `${trimLargeNumber(n / 1_000_000_000)}B`;
   if (n >= 1_000_000) return `${trimNumber(n / 1_000_000)}M`;
   if (n >= 1_000) return `${trimNumber(n / 1_000)}K`;
   return String(Math.round(n));
+}
+
+function trimLargeNumber(value) {
+  const rounded = value < 10 ? value.toFixed(2) : value < 100 ? value.toFixed(1) : value.toFixed(0);
+  return rounded.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
 }
 
 function trimNumber(value) {
@@ -602,6 +689,12 @@ function formatContextMax(value) {
 
 function formatTimeHHmm(d = new Date()) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function formatResetHHmm(timestamp) {
+  const ms = Number(timestamp);
+  if (!Number.isFinite(ms) || ms <= 0) return '--:--';
+  return formatTimeHHmm(new Date(ms));
 }
 
 async function readStdinJson() {
@@ -625,31 +718,27 @@ async function main() {
 
   const [quota, dayFromApi, monthFromApi] = await Promise.all([
     fetchQuota(env),
-    env.GLM_STATUSLINE_USAGE_SOURCE === 'local' ? Promise.resolve(null) : fetchModelUsage(env, 'day'),
-    env.GLM_STATUSLINE_USAGE_SOURCE === 'local' ? Promise.resolve(null) : fetchModelUsage(env, 'month'),
+    fetchModelUsage(env, 'day'),
+    fetchModelUsage(env, 'month'),
   ]);
 
-  let dayTokens = dayFromApi;
-  let monthTokens = monthFromApi;
-  if (dayTokens === null || monthTokens === null) {
-    const local = scanLocalUsage();
-    if (dayTokens === null) dayTokens = local.day;
-    if (monthTokens === null) monthTokens = local.month;
-  }
+  const dayTokens = dayFromApi ?? 0;
+  const monthTokens = monthFromApi ?? 0;
 
   const modelName = mapClaudeModelToGlm(sessionContext, env);
   const contextInfo = getContextInfo(sessionContext, sessionTokens, env);
   const planName = quota.planName || normalizePlanName(env.GLM_STATUSLINE_PLAN) || 'GLM';
   const fiveHourPercent = quota.fiveHourPercent ?? 0;
+  const fiveHourReset = formatResetHHmm(quota.fiveHourUpdateTime || quota.fiveHourResetTime);
   const mcpPercent = quota.mcpPercent ?? 0;
 
   const line1 = `${planName} │ 5H ${renderBar(fiveHourPercent)} │ MCP ${renderBar(
     mcpPercent
   )} │ Context ${renderBar(contextInfo.percent)} (${modelName} / ${formatContextMax(contextInfo.max)})`;
 
-  const line2 = `${formatTimeHHmm()} ｜ Sess:${formatTokens(sessionTokens)} │ Day:${formatTokens(
+  const line2 = `5H@${fiveHourReset} ｜ Sess:${formatTokens(sessionTokens)} │ Day:${formatTokens(
     dayTokens
-  )} │ Mon:${formatTokens(monthTokens)}`;
+  )} │ 30D:${formatTokens(monthTokens)}`;
 
   console.log(`${line1}\n${line2}`);
 }
@@ -657,7 +746,7 @@ async function main() {
 main().catch((err) => {
   // Keep Claude Code usable even if the script crashes.
   const msg = err && err.message ? err.message : String(err);
-  console.log(`GLM │ 5H ${renderBar(0)} │ MCP ${renderBar(0)} │ Context ${renderBar(0)} (GLM / 200K)\n${formatTimeHHmm()} ｜ Sess:0 │ Day:0 │ Mon:0`);
+  console.log(`GLM │ 5H ${renderBar(0)} │ MCP ${renderBar(0)} │ Context ${renderBar(0)} (GLM / 200K)\n5H@--:-- ｜ Sess:0 │ Day:0 │ 30D:0`);
   if (process.env.GLM_STATUSLINE_DEBUG === '1') {
     console.error(msg);
   }
