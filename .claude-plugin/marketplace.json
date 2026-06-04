@@ -4,14 +4,14 @@
     "name": "CCStatusline"
   },
   "description": "Local marketplace for the GLM StatusLine Claude Code plugin.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "plugins": [
     {
       "name": "glm-statusline",
       "displayName": "GLM StatusLine",
       "source": "./",
       "description": "Shows GLM Coding Plan quota, MCP usage, context usage, and token totals in the Claude Code status line.",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "author": {
         "name": "CCStatusline"
       },

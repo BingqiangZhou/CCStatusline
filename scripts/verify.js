@@ -68,16 +68,16 @@ async function main() {
   const plugin = readJson('.claude-plugin/plugin.json');
   assert.strictEqual(plugin.name, 'glm-statusline');
   assert.match(plugin.description, /GLM/i);
-  assert.strictEqual(plugin.version, '1.1.0');
+  assert.strictEqual(plugin.version, '1.1.1');
 
   const marketplace = readJson('.claude-plugin/marketplace.json');
   assert.strictEqual(marketplace.name, 'bingqiangzhou-tools');
   assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.source === './'));
-  assert.strictEqual(marketplace.version, '1.1.0');
-  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.1.0'));
+  assert.strictEqual(marketplace.version, '1.1.1');
+  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.1.1'));
 
   const packageJson = readJson('package.json');
-  assert.strictEqual(packageJson.version, '1.1.0');
+  assert.strictEqual(packageJson.version, '1.1.1');
 
   assertFile('bin/glm-statusline.js');
   assertFile('bin/glm-statusline-install.js');
@@ -205,25 +205,50 @@ async function main() {
   }
 
   const settingsFile = path.join(tempDir, 'settings.json');
+  const launcherFile = path.join(tempDir, 'glm-statusline-launcher.js');
   fs.writeFileSync(settingsFile, JSON.stringify({ env: { GLM_STATUSLINE_PLAN: 'GLM Lite' } }, null, 2));
 
   const install = run(process.execPath, ['bin/glm-statusline-install.js', 'install'], {
-    env: { GLM_STATUSLINE_SETTINGS_FILE: settingsFile },
+    env: {
+      GLM_STATUSLINE_SETTINGS_FILE: settingsFile,
+      GLM_STATUSLINE_LAUNCHER_FILE: launcherFile,
+    },
   });
   assert.strictEqual(install.status, 0, install.stderr);
   const installedSettings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
   assert.strictEqual(installedSettings.statusLine.type, 'command');
-  assert.match(installedSettings.statusLine.command, /glm-statusline\.js/);
+  assert.ok(fs.existsSync(launcherFile), 'install should write a stable launcher file');
+  assert.match(installedSettings.statusLine.command, /glm-statusline-launcher\.js/);
+  assert.doesNotMatch(installedSettings.statusLine.command, /plugins\/cache\/.*\/\d+\.\d+\.\d+\/bin\/glm-statusline\.js/);
   assert.strictEqual(installedSettings.statusLine.refreshInterval, 5);
   assert.strictEqual(installedSettings.statusLine.padding, 0);
   assert.strictEqual(installedSettings.env.GLM_STATUSLINE_PLAN, 'GLM Lite');
 
+  const launcherStatus = run(process.execPath, [launcherFile], {
+    input: JSON.stringify({
+      model: { display_name: 'Sonnet' },
+      context_window: { used_percentage: 12, context_window_size: 200000 },
+      transcript_path: path.join(os.tmpdir(), 'missing-glm-statusline-transcript.jsonl'),
+    }),
+    env: {
+      ANTHROPIC_AUTH_TOKEN: '',
+      ANTHROPIC_BASE_URL: '',
+      GLM_STATUSLINE_CACHE_TTL_MS: '1',
+    },
+  });
+  assert.strictEqual(launcherStatus.status, 0, launcherStatus.stderr);
+  assert.match(launcherStatus.stdout, /5H@/);
+
   const uninstall = run(process.execPath, ['bin/glm-statusline-install.js', 'uninstall'], {
-    env: { GLM_STATUSLINE_SETTINGS_FILE: settingsFile },
+    env: {
+      GLM_STATUSLINE_SETTINGS_FILE: settingsFile,
+      GLM_STATUSLINE_LAUNCHER_FILE: launcherFile,
+    },
   });
   assert.strictEqual(uninstall.status, 0, uninstall.stderr);
   const uninstalledSettings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
   assert.strictEqual(uninstalledSettings.statusLine, undefined);
+  assert.ok(!fs.existsSync(launcherFile), 'uninstall should remove the stable launcher file');
 
   console.log('All plugin verification checks passed.');
 }
