@@ -171,6 +171,7 @@ npm test
 ```
 
 启用后，Claude Code 下一次交互时状态栏就会刷新。
+安装输出会提示你运行 `/glm-statusline:configure`，用交互式选择界面配置状态栏显示哪些内容。
 
 也可以安装时直接选择显示内容：
 

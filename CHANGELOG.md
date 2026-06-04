@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.2 - 2026-06-04
+
+- Added an install completion hint that points users to `/glm-statusline:configure`.
+
 ## 1.2.1 - 2026-06-04
 
 - Changed no-argument `/glm-statusline:configure` into an interactive selector that saves and previews after every field toggle.

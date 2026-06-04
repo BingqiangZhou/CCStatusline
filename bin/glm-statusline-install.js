@@ -250,6 +250,12 @@ function saveInteractiveConfig(config) {
   console.log(renderPreview());
 }
 
+function printInstallNextSteps() {
+  console.log('');
+  console.log('Next step: run /glm-statusline:configure to choose which fields are shown.');
+  console.log('Each selection saves immediately and prints a fresh preview.');
+}
+
 function toggleField(config, input) {
   const index = Number(String(input).trim()) - 1;
   if (!Number.isInteger(index) || index < 0 || index >= FIELD_ORDER.length) {
@@ -355,6 +361,7 @@ async function install(args = []) {
   if (!args.some((arg) => /^--(show|display|layout|bar-width|barWidth)=/.test(arg))) {
     console.log(renderPreview());
   }
+  printInstallNextSteps();
 }
 
 function uninstall(force = false) {

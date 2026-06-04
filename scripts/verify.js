@@ -68,16 +68,16 @@ async function main() {
   const plugin = readJson('.claude-plugin/plugin.json');
   assert.strictEqual(plugin.name, 'glm-statusline');
   assert.match(plugin.description, /GLM/i);
-  assert.strictEqual(plugin.version, '1.2.1');
+  assert.strictEqual(plugin.version, '1.2.2');
 
   const marketplace = readJson('.claude-plugin/marketplace.json');
   assert.strictEqual(marketplace.name, 'bingqiangzhou-tools');
   assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.source === './'));
-  assert.strictEqual(marketplace.version, '1.2.1');
-  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.2.1'));
+  assert.strictEqual(marketplace.version, '1.2.2');
+  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.2.2'));
 
   const packageJson = readJson('package.json');
-  assert.strictEqual(packageJson.version, '1.2.1');
+  assert.strictEqual(packageJson.version, '1.2.2');
 
   assertFile('bin/glm-statusline.js');
   assertFile('bin/glm-statusline-install.js');
@@ -318,6 +318,8 @@ async function main() {
   assert.strictEqual(installedSettings.statusLine.refreshInterval, 5);
   assert.strictEqual(installedSettings.statusLine.padding, 0);
   assert.strictEqual(installedSettings.env.GLM_STATUSLINE_PLAN, 'GLM Lite');
+  assert.match(install.stdout, /\/glm-statusline:configure/);
+  assert.match(install.stdout, /choose which fields are shown/i);
 
   const configure = run(
     process.execPath,
