@@ -87,7 +87,7 @@ allowed-tools:
 context: fork
 agent: general-purpose
 user-invocable: false
-model: claude-sonnet-4-6
+model: sonnet
 effort: high
 hooks:
   PostToolUse: ...
@@ -113,10 +113,12 @@ shell: bash
 | `context` | string | `fork` = 在隔离 subagent 上运行，适合大量检索或审查任务。 |
 | `agent` | string | 配合 `context: fork` 指定 subagent 类型（`Explore`、`Plan`、`general-purpose` 或自定义）。 |
 | `model` | string | 为当前 turn 指定模型。 |
-| `effort` | string | 推理强度：`low`、`medium`、`high`。 |
+| `effort` | string | 推理强度：`low`、`medium`、`high`、`xhigh`、`max`（可用值取决于模型）。 |
 | `hooks` | object | 只在这个 skill 生命周期内生效的 hook。 |
 | `paths` | array | 限制自动激活范围，例如只在 `src/api/**/*.ts` 相关文件上触发。 |
 | `shell` | string | 动态命令注入的 shell：`bash` 或 `powershell`。 |
+
+`allowed-tools` 和 `disallowed-tools` 可以写成 YAML list，也可以写成空格或逗号分隔的字符串。它们改变的是当前 skill 激活期间的权限行为，不会永久修改 settings。
 
 ## 4. 参数系统
 
@@ -246,6 +248,8 @@ skills/configure/SKILL.md  →  指示 Claude 运行  →  bin/configure.js
 
 `bin/` 目录下的文件会被加入 Claude Code 的 `PATH`，所以正文中可以直接写脚本名。
 
+> **安全提示**：会修改文件、settings、部署环境或发送外部消息的 skill，建议加 `disable-model-invocation: true`，避免 Claude 在用户没有明确输入 `/name` 时自动触发。
+
 ## 9. 最佳实践
 
 ### 9.1 description 要像触发规则
@@ -312,7 +316,7 @@ GLM StatusLine 插件包含四个 skill：
 ```markdown
 ---
 description: Enable the GLM status line in Claude Code user settings.
-argument-hint: "[--show=plan,5h,mcp,context,model,session,day,30d]"
+disable-model-invocation: true
 ---
 
 # Install GLM StatusLine
@@ -320,13 +324,13 @@ argument-hint: "[--show=plan,5h,mcp,context,model,session,day,30d]"
 Run the plugin installer from the plugin `bin` directory:
 
 \`\`\`bash
-glm-statusline-install.js install $ARGUMENTS
+glm-statusline-install.js install
 \`\`\`
 
 Then tell the user that the status line is enabled.
 ```
 
-关键设计：`disable-model-invocation` 未设置，因为 Claude 也可能建议用户安装。`$ARGUMENTS` 传递用户选择的显示字段。
+关键设计：`install` 会写入 `~/.claude/settings.json`，所以设置 `disable-model-invocation: true`，让用户必须显式运行 `/glm-statusline:install`。显示字段通过 `/glm-statusline:configure` 的交互式选择界面配置。
 
 ### configure skill
 
@@ -353,8 +357,11 @@ disable-model-invocation: true
 ```markdown
 ---
 description: Remove the GLM status line from Claude Code user settings.
+disable-model-invocation: true
 ---
 ```
+
+卸载同样会修改 settings，建议保持手动触发。
 
 ## 参考资料
 

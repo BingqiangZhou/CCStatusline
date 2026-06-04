@@ -271,14 +271,14 @@ COLUMNS=50
 
 ### 7.1 问题
 
-Claude Code 更新插件时会创建新的缓存目录：
+Claude Code 通过 marketplace 安装插件时会把插件复制到缓存目录，每个版本一个子目录：
 
 ```text
-~/.claude/plugins/.cache/glm-statusline@bingqiangzhou-tools/
-  1.2.2/
-    bin/glm-statusline.js    ← 旧版本
-  1.2.3/
-    bin/glm-statusline.js    ← 新版本
+~/.claude/plugins/cache/bingqiangzhou-tools/glm-statusline/
+├── 1.2.2/
+│   └── bin/glm-statusline.js    ← 旧版本
+└── 1.2.3/
+    └── bin/glm-statusline.js    ← 新版本
 ```
 
 如果 `settings.json` 中的 `statusLine.command` 指向旧版本路径，更新后会失效。
@@ -300,8 +300,8 @@ const path = require('path');
 
 // 查找最新版本的插件缓存
 const cacheDir = path.join(
-  process.env.HOME, '.claude', 'plugins', '.cache',
-  'glm-statusline@bingqiangzhou-tools'
+  process.env.HOME, '.claude', 'plugins', 'cache',
+  'bingqiangzhou-tools', 'glm-statusline'
 );
 
 // 列出所有版本目录，按 semver 排序
@@ -335,12 +335,12 @@ launcher 自动找到最新版本
 
 ```yaml
 description: Enable the GLM status line in Claude Code user settings after
-             the plugin is installed, optionally choosing which fields to display.
-argument-hint: "[--show=plan,5h,mcp,context,model,session,day,30d]"
+             the plugin is installed.
+disable-model-invocation: true
 ```
 
-- **不设 disable-model-invocation**：Claude 可以主动建议用户安装
-- **支持参数**：`$ARGUMENTS` 传递 `--show=` 等选项
+- **设 disable-model-invocation**：安装会写入 `~/.claude/settings.json`，必须由用户显式触发
+- **不接收显示参数**：字段选择统一交给 `/glm-statusline:configure`
 
 ### configure
 
@@ -362,9 +362,10 @@ disable-model-invocation: true
 
 ```yaml
 description: Remove the GLM status line from Claude Code user settings.
+disable-model-invocation: true
 ```
 
-- **不设 disable-model-invocation**：Claude 可以建议用户卸载（比如遇到问题时）
+- **设 disable-model-invocation**：卸载会修改 settings，同样只允许用户手动触发
 
 ## 9. 安装脚本设计
 
@@ -379,24 +380,17 @@ description: Remove the GLM status line from Claude Code user settings.
    └── 无 → 继续
 3. 写入稳定 launcher（~/.claude/glm-statusline-launcher.js）
 4. 写入 statusLine.command 指向 launcher
-5. 如果有 --show 参数，写入显示配置
-6. 输出安装结果
+5. 输出安装结果和预览
 ```
 
 ### 9.2 configure 子命令
 
 ```text
-无参数模式：
-  1. 显示当前配置
-  2. 逐个字段让用户选择
-  3. 每次选择后保存配置
-  4. 运行 --preview 显示预览
-  5. 输入 q 结束
-
-参数模式：
-  1. 解析 --show、--layout、--bar-width 参数
-  2. 写入配置文件
-  3. 运行 --preview 显示预览
+1. 显示当前配置
+2. 逐个字段让用户选择
+3. 每次选择后保存配置
+4. 运行 --preview 显示预览
+5. 输入 q 结束
 ```
 
 ### 9.3 uninstall 子命令
@@ -431,7 +425,7 @@ description: Remove the GLM status line from Claude Code user settings.
   │
   ├── 安装脚本
   │     ├── install 写入 settings.json
-  │     ├── configure 交互选择和参数模式
+  │     ├── configure 交互选择
   │     ├── uninstall 正确移除
   │     └── 不误删非本插件配置
   │
@@ -523,13 +517,14 @@ npm test
 ### 使用 Monitors
 
 ```json
-{
-  "monitors": [{
+[
+  {
     "name": "quota-watch",
     "command": "${CLAUDE_PLUGIN_ROOT}/scripts/quota-watch.sh",
-    "when": "always"
-  }]
-}
+    "when": "always",
+    "description": "Warns when GLM/Z.ai quota is running low"
+  }
+]
 ```
 
 额度低于 10% 时主动通知 Claude。

@@ -35,7 +35,7 @@ Agent 的核心价值：
   ├── Claude 识别：这是审查任务
   ├── 启动 subagent（agents/reviewer.md）
   │     ├── 只读工具：Read、Grep、Glob
-  │     ├── 模型：claude-sonnet-4-6
+  │     ├── 模型：sonnet
   │     └── 独立上下文，不影响主会话
   └── 收集 subagent 结果，汇报给用户
 ```
@@ -74,7 +74,7 @@ tools:
   - Grep
   - Glob
   - WebSearch
-model: claude-sonnet-4-6
+model: sonnet
 maxTurns: 30
 effort: high
 ---
@@ -104,13 +104,17 @@ For each finding:
 | --- | --- | --- | --- |
 | `name` | string | 推荐 | Agent 的标识名。如果省略，用文件名（去掉 `.md`）。 |
 | `description` | string | 推荐 | 详细描述 agent 的能力和适用场景。Claude 用它判断何时使用。 |
-| `tools` | array | 否 | Agent 可以使用的工具列表。不设置则继承默认工具集。 |
-| `model` | string | 否 | 指定模型。如 `claude-sonnet-4-6`、`claude-haiku-4-5-20251001`。 |
+| `tools` | array/string | 否 | Agent 可以使用的工具列表。不设置则继承主会话可用工具。 |
+| `disallowedTools` | array/string | 否 | 从继承或指定工具集中移除某些工具。 |
+| `model` | string | 否 | 指定模型。常用值是 `sonnet`、`opus`、`haiku`、完整模型 ID 或 `inherit`。默认 `inherit`。 |
+| `permissionMode` | string | 否 | 权限模式，如 `default`、`auto`、`plan` 等。插件内 agent 会忽略此字段。 |
 | `maxTurns` | number | 否 | 最大执行轮次，防止无限循环。 |
 | `skills` | array | 否 | Agent 启动时预加载的 skill 列表。 |
+| `mcpServers` | array/object | 否 | 给非插件 agent 指定额外 MCP server。插件内 agent 会忽略此字段。 |
+| `hooks` | object | 否 | 只在该 agent 生命周期内生效的 hook。插件内 agent 会忽略此字段。 |
 | `isolation` | string | 否 | `worktree` = 在独立 git worktree 中运行，适合会修改文件的操作。 |
 | `background` | boolean | 否 | `true` = 后台运行，不阻塞主会话。 |
-| `effort` | string | 否 | 推理强度：`low`、`medium`、`high`。 |
+| `effort` | string | 否 | 推理强度：`low`、`medium`、`high`、`xhigh`、`max`（可用值取决于模型）。 |
 | `color` | string | 否 | 在团队/工作流 UI 中的显示颜色。 |
 
 ### tools 字段详解
@@ -133,15 +137,17 @@ For each finding:
 ### model 字段说明
 
 ```yaml
-# 用最新 Sonnet 做平衡任务
-model: claude-sonnet-4-6
+# 用 Sonnet 做平衡任务
+model: sonnet
 
 # 用 Haiku 做快速分类
-model: claude-haiku-4-5-20251001
+model: haiku
 
 # 用 Opus 做深度分析
-model: claude-opus-4-8
+model: opus
 ```
+
+也可以填写完整模型 ID；是否可用以当前 Claude Code `/model` 支持列表为准。
 
 ### isolation 字段说明
 
@@ -228,10 +234,10 @@ Claude 会根据 agent 文件的 `description` 判断何时启动对应的 subag
 
 插件中的 subagent 有额外的安全限制：
 
-1. **工具限制**：插件 subagent 不能使用比主会话更多权限的工具
-2. **路径限制**：只能访问插件目录和项目工作目录
-3. **MCP 限制**：只能访问插件声明的 MCP server
-4. **嵌套限制**：subagent 不能无限嵌套启动子 subagent
+1. **工具限制**：插件 subagent 不能使用比主会话更多权限的工具。
+2. **不支持部分 frontmatter**：插件内 agent 会忽略 `hooks`、`mcpServers`、`permissionMode`。如果需要这些字段，应把 agent 放到项目或个人 `.claude/agents/` 中。
+3. **嵌套限制**：subagent 不能继续启动 subagent。
+4. **后台权限限制**：后台 subagent 无法弹出交互式权限请求；需要额外权限时应以前台方式重试。
 
 这些限制确保插件 subagent 不会越权操作。
 

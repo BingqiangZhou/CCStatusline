@@ -1,5 +1,6 @@
 ---
 description: Remove the GLM status line from Claude Code user settings.
+disable-model-invocation: true
 ---
 
 # Uninstall GLM StatusLine

@@ -1,5 +1,7 @@
 # GLM StatusLine 学习笔记（第一篇）：Claude Code 底部显示 GLM Coding Plan 用量
 
+> **归档说明**：这篇记录的是插件化之前的单文件方案，保留为历史记录。当前安装、配置、缓存和插件分发方式以主系列笔记（`notes/01-插件系统概览.md` 到 `notes/11-实践案例-GLM-StatusLine.md`）和 README 为准。
+
 ## 1. 目标
 
 在 Claude Code 输入区域下面显示两行状态栏：

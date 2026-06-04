@@ -88,7 +88,7 @@ agent: general-purpose
 - `user-invocable: false`：用户菜单隐藏，只让 Claude 在相关场景自动加载。适合背景知识类 skill。
 - `allowed-tools`：skill 激活时预批准指定工具；不是工具白名单，未列出的工具仍按全局权限规则处理。
 - `disallowed-tools`：skill 激活时移除某些工具。
-- `model`、`effort`：为当前 turn 指定模型或推理强度。
+- `model`、`effort`：为当前 turn 指定模型或推理强度；`effort` 常见值包括 `low`、`medium`、`high`、`xhigh`、`max`，具体可用值取决于模型。
 - `context: fork`：在隔离 subagent 上运行这个 skill，适合大量检索、审查、研究。
 - `agent`：配合 `context: fork` 指定使用哪个 subagent，例如 `Explore`、`Plan`、`general-purpose` 或自定义 agent。
 - `hooks`：定义只在这个 skill 生命周期内生效的 hook。
@@ -196,6 +196,7 @@ Claude Code 会监听已存在的 skill 目录，`SKILL.md` 修改可在当前 s
 - `~/.claude/agents/*.md` 个人 subagent
 - 插件 `agents/` 目录里的 subagent
 - 限制工具、模型、effort、maxTurns
+- 插件 subagent 会忽略 `hooks`、`mcpServers`、`permissionMode`，需要这些字段时应放到项目或个人 agents 目录
 - 给 subagent 预加载 skills
 - 使用 `isolation: worktree` 做隔离实现
 
@@ -257,7 +258,7 @@ Claude Code 会监听已存在的 skill 目录，`SKILL.md` 修改可在当前 s
 - `~/.claude/output-styles/*.md`
 - `.claude/output-styles/*.md`
 - 插件 `output-styles/`
-- 插件 `themes/`
+- 插件 `themes/`（experimental）
 
 Output style 改的是系统提示风格，不是项目知识。比如“所有解释先画 Mermaid 图”、“以教学模式回答”、“作为数据分析助手回答”。
 
@@ -295,6 +296,8 @@ Output style 改的是系统提示风格，不是项目知识。比如“所有�
 - 监听服务健康检查
 - `when: always`
 - `when: on-skill-invoke:<skill-name>`
+
+插件 monitors 是 experimental 组件，配置文件内容是 JSON 数组；它们只在交互式 CLI session 中运行，且以与 hooks 相同的信任级别运行。
 
 Monitors 适合“Claude 应该被动知道外部状态变化”的场景。它和 hooks 一样要谨慎，因为运行在本地且有安全影响。
 

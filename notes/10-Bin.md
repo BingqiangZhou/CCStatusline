@@ -348,11 +348,14 @@ require('../glm-statusline.js');
 {
   "statusLine": {
     "type": "command",
-    "command": "'/usr/local/bin/node' '/path/to/bin/glm-statusline.js'",
-    "refreshInterval": 5
+    "command": "'/usr/local/bin/node' '/Users/you/.claude/glm-statusline-launcher.js'",
+    "refreshInterval": 5,
+    "padding": 0
   }
 }
 ```
+
+安装脚本实际写入的是稳定 launcher，而不是插件缓存目录里的 `bin/glm-statusline.js`。这样插件更新后，launcher 可以自动寻找最新版本的 `bin/glm-statusline.js`。
 
 ### 8.2 glm-statusline-install.js — 安装 CLI
 
@@ -360,10 +363,10 @@ require('../glm-statusline.js');
 
 ```bash
 # 安装：写入 settings.json 的 statusLine
-glm-statusline-install.js install [--show=plan,5h,context,session]
+glm-statusline-install.js install
 
-# 配置：交互式选择字段或参数式配置
-glm-statusline-install.js configure [--show=5h,context,session --layout=compact]
+# 配置：交互式选择字段
+glm-statusline-install.js configure
 
 # 卸载：移除 statusLine 配置
 glm-statusline-install.js uninstall

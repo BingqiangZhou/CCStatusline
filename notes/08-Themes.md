@@ -2,7 +2,7 @@
 
 > 学习笔记系列 · 第八篇
 >
-> 本篇深入讲解 Claude Code Themes：终端视觉主题的定义方式、颜色 token、内置主题、热加载和最佳实践。
+> 本篇讲解 Claude Code Themes：终端视觉主题的定义方式、插件主题声明、颜色 token 的安全使用方式和最佳实践。
 
 ## 目录
 
@@ -12,7 +12,7 @@
 - [4. 内置主题](#4-内置主题)
 - [5. 颜色值格式](#5-颜色值格式)
 - [6. 插件中的 Themes](#6-插件中的-themes)
-- [7. 热加载](#7-热加载)
+- [7. 加载与调试](#7-加载与调试)
 - [8. 创建自定义主题](#8-创建自定义主题)
 - [9. 最佳实践](#9-最佳实践)
 - [10. 本项目实例](#10-本项目实例)
@@ -62,77 +62,27 @@ Theme 是 JSON 文件，放在 `themes/` 目录下。
 | 字段 | 类型 | 必需 | 说明 |
 | --- | --- | --- | --- |
 | `name` | string | 是 | 主题显示名称 |
-| `base` | string | 是 | 基础主题：`"dark"` 或 `"light"` |
-| `overrides` | object | 是 | 颜色 token 覆盖映射 |
+| `base` | string | 是 | 基础预设，例如 `"dark"` 或 `"light"` |
+| `overrides` | object | 是 | 颜色 token 覆盖映射，建议只覆盖需要改变的 token |
 
 `base` 决定未覆盖的 token 使用什么默认值。`dark` 使用暗色默认，`light` 使用亮色默认。
 
 ## 3. 颜色 Token 参考
 
-### 文本颜色
+官方插件参考展示的是稀疏覆盖模式：只写你确定要改的 token。不同 Claude Code 版本可能扩展或调整 token 集合，所以不要把下面的表当作完整 schema。
+
+### 常见语义颜色
 
 | Token | 说明 |
 | --- | --- |
-| `text` | 主要文本颜色 |
-| `text.dim` | 次要/弱化文本 |
-| `text.bold` | 粗体文本 |
-| `text.italic` | 斜体文本 |
-| `text.link` | 链接/URL |
-
-### 语义颜色
-
-| Token | 说明 |
-| --- | --- |
-| `accent` | 强调色（按钮、高亮） |
+| `claude` | Claude 品牌/强调色（官方示例使用） |
 | `success` | 成功状态 |
-| `warning` | 警告状态 |
 | `error` | 错误状态 |
-| `info` | 信息提示 |
-
-### 界面元素
-
-| Token | 说明 |
-| --- | --- |
-| `background` | 主背景色 |
-| `background.hover` | 鼠标悬停背景 |
-| `border` | 边框颜色 |
-| `divider` | 分隔线颜色 |
-
-### 代码高亮
-
-| Token | 说明 |
-| --- | --- |
-| `code.keyword` | 关键字（if、for、function） |
-| `code.string` | 字符串 |
-| `code.comment` | 注释 |
-| `code.number` | 数字 |
-| `code.function` | 函数名 |
-| `code.type` | 类型名 |
-| `code.variable` | 变量名 |
-| `code.operator` | 操作符 |
-
-### 工具相关
-
-| Token | 说明 |
-| --- | --- |
-| `tool.name` | 工具名 |
-| `tool.input` | 工具输入 |
-| `tool.output` | 工具输出 |
-
-> Claude Code 有约 69 个颜色 token，上面列出的是最常用的约 35 个。其余 token 可以在官方文档中查找完整列表。
+| 其他 token | 以当前 Claude Code 主题编辑器或官方文档为准 |
 
 ## 4. 内置主题
 
-Claude Code 提供了 6 个内置主题变体：
-
-| 主题 | base | 特点 |
-| --- | --- | --- |
-| Default Dark | dark | 标准暗色主题 |
-| Default Light | light | 标准亮色主题 |
-| High Contrast Dark | dark | 高对比度暗色 |
-| High Contrast Light | light | 高对比度亮色 |
-| Monokai | dark | 经典代码编辑器风格 |
-| Nord | dark | 北极色调冷色系 |
+Claude Code 通过 `/theme` 菜单提供内置主题和用户自定义主题。内置主题名称可能随版本调整，建议在当前环境的 `/theme` 中查看。
 
 ### 切换主题
 
@@ -144,54 +94,24 @@ Claude Code 提供了 6 个内置主题变体：
 
 ### 设置默认主题
 
-在 `~/.claude/settings.json` 中：
+在 settings 中可保存主题选择。插件主题被选中后，配置值类似：
 
 ```json
 {
-  "theme": "monokai"
+  "theme": "custom:<plugin-name>:<theme-slug>"
 }
 ```
 
 ## 5. 颜色值格式
 
-支持多种颜色格式：
+优先使用 HEX。其他格式是否支持以当前 Claude Code 版本为准。
 
 ### HEX（推荐）
 
 ```json
 {
-  "text": "#e0e0e0",
-  "accent": "#bb86fc"
-}
-```
-
-### RGB
-
-```json
-{
-  "text": "rgb(224, 224, 224)",
-  "accent": "rgb(187, 134, 252)"
-}
-```
-
-### ANSI 颜色名
-
-```json
-{
-  "text": "white",
-  "accent": "magenta",
-  "success": "cyan"
-}
-```
-
-支持的 ANSI 颜色名：`black`、`red`、`green`、`yellow`、`blue`、`magenta`、`cyan`、`white`、`bright-black`、`bright-red` 等。
-
-### 256 色
-
-```json
-{
-  "text": "color-252",
-  "accent": "color-183"
+  "claude": "#bb86fc",
+  "success": "#50fa7b"
 }
 ```
 
@@ -234,13 +154,11 @@ Themes 目前是 experimental 功能，在 `plugin.json` 中通过 `experimental
 
 ### 主题生效
 
-插件安装后，插件提供的主题会出现在 `/theme` 的可选列表中。
+插件安装并启用后，插件提供的主题会出现在 `/theme` 的可选列表中。插件主题是只读的；在 `/theme` 中对插件主题按 `Ctrl+E` 会复制一份到 `~/.claude/themes/`，之后用户可以编辑复制出来的版本。
 
-## 7. 热加载
+## 7. 加载与调试
 
-主题支持**热加载**：修改主题 JSON 文件后，Claude Code 会自动重新加载，无需重启。
-
-这使得主题开发非常方便：修改 → 保存 → 立即看到效果。
+开发本地插件主题时，修改 JSON 后可以先运行 `/reload-plugins` 或重启 Claude Code，再到 `/theme` 中重新选择。不要假设 marketplace 安装后的主题文件会被实时热加载；安装版插件来自缓存目录，更新后路径也可能变化。
 
 ## 8. 创建自定义主题
 
@@ -253,11 +171,9 @@ Themes 目前是 experimental 功能，在 `plugin.json` 中通过 `experimental
   "name": "My Ocean Theme",
   "base": "dark",
   "overrides": {
-    "accent": "#0077b6",
+    "claude": "#0077b6",
     "success": "#00b4d8",
-    "warning": "#f77f00",
-    "code.keyword": "#48cae4",
-    "code.string": "#90e0ef"
+    "error": "#e63946"
   }
 }
 ```
@@ -269,24 +185,9 @@ Themes 目前是 experimental 功能，在 `plugin.json` 中通过 `experimental
   "name": "Full Custom",
   "base": "dark",
   "overrides": {
-    "text": "#d4d4d4",
-    "text.dim": "#6a6a6a",
-    "text.bold": "#ffffff",
-    "text.link": "#569cd6",
-    "accent": "#c586c0",
+    "claude": "#c586c0",
     "success": "#4ec9b0",
-    "warning": "#dcdcaa",
-    "error": "#f44747",
-    "info": "#9cdcfe",
-    "background": "#1e1e1e",
-    "background.hover": "#2d2d2d",
-    "border": "#3c3c3c",
-    "code.keyword": "#569cd6",
-    "code.string": "#ce9178",
-    "code.comment": "#6a9955",
-    "code.number": "#b5cea8",
-    "code.function": "#dcdcaa",
-    "code.type": "#4ec9b0"
+    "error": "#f44747"
   }
 }
 ```
@@ -298,16 +199,9 @@ Themes 目前是 experimental 功能，在 `plugin.json` 中通过 `experimental
   "name": "Solarized Light",
   "base": "light",
   "overrides": {
-    "text": "#657b83",
-    "text.dim": "#93a1a1",
-    "accent": "#268bd2",
+    "claude": "#268bd2",
     "success": "#859900",
-    "warning": "#b58900",
-    "error": "#dc322f",
-    "background": "#fdf6e3",
-    "code.keyword": "#859900",
-    "code.string": "#2aa198",
-    "code.comment": "#93a1a1"
+    "error": "#dc322f"
   }
 }
 ```
@@ -317,22 +211,22 @@ Themes 目前是 experimental 功能，在 `plugin.json` 中通过 `experimental
 ### 9.1 只覆盖需要的 token
 
 ```json
-// 好：只改 accent 和 code 颜色
+// 好：只改少量确定 token
 {
   "name": "Minimal Custom",
   "base": "dark",
   "overrides": {
-    "accent": "#bb86fc",
-    "code.keyword": "#c792ea"
+    "claude": "#bb86fc",
+    "success": "#50fa7b"
   }
 }
 
-// 不好：复制所有默认值然后改
+// 不好：复制一大批未核实 token 后只改其中一两个
 {
   "name": "Verbose Custom",
   "base": "dark",
   "overrides": {
-    // ... 69 个 token 全部列出
+    // ... 很多未确认 token
   }
 }
 ```
@@ -341,17 +235,17 @@ Themes 目前是 experimental 功能，在 `plugin.json` 中通过 `experimental
 
 - Dark 主题的文本色要足够亮（`#c0c0c0` 以上）
 - Light 主题的文本色要足够暗（`#404040` 以下）
-- accent 色要在两种背景上都清晰可辨
+- 强调色和状态色要在当前终端背景上都清晰可辨
 
 ### 9.3 测试颜色可辨识度
 
 - `success` 和 `error` 要明显不同（色盲友好）
-- `warning` 和 `accent` 要能区分
-- `text.dim` 要比 `text` 暗但仍可读
+- 不要只依赖颜色传达状态；必要时配合文字或符号
+- 在深色、浅色终端里都试一次
 
-### 9.4 利用热加载快速迭代
+### 9.4 用 reload 或新会话验证
 
-修改主题 → 保存 → 立即看到效果 → 再调整 → 直到满意。
+修改主题 → `/reload-plugins` 或重启 → 在 `/theme` 中选择 → 再调整 → 直到满意。
 
 ## 10. 本项目实例
 
@@ -365,8 +259,6 @@ GLM StatusLine 插件**没有提供 Theme**。状态栏的颜色由终端本身�
 ## 参考资料
 
 - [Claude Code 官方文档 - Plugins reference](https://code.claude.com/docs/en/plugins-reference.md)
-- [Claude Code 官方文档 - Themes](https://code.claude.com/docs/en/themes.md)
-- [Claude Code GitHub - Built-in themes](https://github.com/anthropics/claude-code/tree/main/themes)
 
 ## 系列导航
 

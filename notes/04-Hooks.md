@@ -193,8 +193,10 @@ Hook 的三个特点：
 | --- | --- | --- |
 | `type` | 是 | `"command"` |
 | `command` | 是 | 要执行的 shell 命令 |
-| `args` | 否 | 命令参数数组 |
-| `timeout` | 否 | 超时秒数，默认 60 |
+| `args` | 否 | 命令参数数组；设置后使用 exec form，不经 shell 解释，适合传 `${CLAUDE_PLUGIN_ROOT}` 这类路径 |
+| `timeout` | 否 | 超时秒数。`command`/`http`/`mcp_tool` 多数事件默认 600 秒；`UserPromptSubmit` 默认 30 秒，`MessageDisplay` 默认 10 秒 |
+| `async` / `asyncRewake` | 否 | 让 hook 后台运行；`asyncRewake` 可在特定失败时唤醒 Claude |
+| `shell` | 否 | `bash` 或 `powershell`；设置 `args` 时忽略 |
 
 ### 4.2 http 类型
 
@@ -261,7 +263,7 @@ Matcher 决定 hook 何时触发。不设置 matcher 等同于匹配所有。
 "Edit|Write"        → 匹配 Edit 或 Write（管道分隔）
 "Bash"              → 匹配所有 Bash 调用
 "mcp__.*"           → 正则匹配所有 MCP 工具
-""                  → 空字符串，匹配所有
+省略 matcher 或 "*"  → 匹配所有支持 matcher 的事件
 ```
 
 ### 各事件的 matcher 值
@@ -275,7 +277,10 @@ Matcher 决定 hook 何时触发。不设置 matcher 等同于匹配所有。
 | `SessionEnd` | 结束原因 | `clear`、`resume`、`logout`、`other` |
 | `Notification` | 通知类型 | `permission_prompt`、`idle_prompt`、`auth_success` |
 | `SubagentStart` / `SubagentStop` | agent 类型 | `general-purpose`、`Explore`、自定义名 |
-| `PreCompact` / `PostCompact` | 压缩方式 | `auto`、`manual` |
+| `InstructionsLoaded` | 加载原因 | `session_start`、`path_glob_match`、`nested_traversal` |
+| `FileChanged` | 文件路径 | `*.ts`、`src/**` |
+
+`UserPromptSubmit`、`PostToolBatch`、`Stop`、`TaskCreated`、`TaskCompleted`、`WorktreeCreate`、`WorktreeRemove`、`MessageDisplay`、`CwdChanged` 等事件不支持 matcher；即使写了也会被忽略。`PreCompact` / `PostCompact` 当前也不是按 `auto`、`manual` matcher 过滤。
 
 ## 6. if 条件过滤
 
@@ -344,28 +349,46 @@ Matcher 决定 hook 何时触发。不设置 matcher 等同于匹配所有。
 
 ```json
 {
-  "decision": "deny",
-  "reason": "Cannot edit production config files."
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "Cannot edit production config files."
+  }
 }
 ```
 
-`decision` 值：
+`permissionDecision` 值：
 
 | 值 | 效果 |
 | --- | --- |
 | `allow` | 允许执行 |
 | `deny` | 阻止执行 |
 | `ask` | 询问用户 |
+| `defer` | 不做决定，继续走正常权限流程 |
 
-当多个 PreToolUse hook 返回不同 decision 时，最严格者生效：`deny` > `ask` > `allow`。
+Hook 要么用 exit code，要么用 `exit 0 + stdout JSON`。如果 exit code 是 2，stdout JSON 会被忽略。
 
-#### 注入额外上下文
+#### 顶层 decision 输出
 
-任何事件都可以通过 `additionalContext` 注入信息给 Claude：
+`UserPromptSubmit`、`UserPromptExpansion`、`PostToolUse`、`PostToolUseFailure`、`PostToolBatch`、`Stop`、`SubagentStop`、`ConfigChange`、`PreCompact` 等事件可以用顶层 `decision: "block"` 阻止后续处理：
 
 ```json
 {
-  "additionalContext": "Project uses TypeScript strict mode. All new files must include type annotations."
+  "decision": "block",
+  "reason": "This task is incomplete; tests were not run."
+}
+```
+
+#### 注入额外上下文
+
+支持上下文注入的事件可以通过 `hookSpecificOutput.additionalContext` 注入信息给 Claude：
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PostToolUse",
+    "additionalContext": "Project uses TypeScript strict mode. All new files must include type annotations."
+  }
 }
 ```
 
@@ -374,7 +397,9 @@ Matcher 决定 hook 何时触发。不设置 matcher 等同于匹配所有。
 | Exit Code | 含义 |
 | --- | --- |
 | 0 | 成功，无特殊行为 |
-| 2 | 阻止操作（等同于 `decision: "deny"`） |
+| 2 | 对支持阻止的事件表示阻止/反馈；具体效果取决于事件 |
+
+不同事件对 exit code 2 的处理不同。比如 `PreToolUse` 会阻止工具调用，`UserPromptSubmit` 会阻止 prompt 继续处理，`PostToolUse` 只能把 stderr 反馈给 Claude，因为工具已经执行完成。需要精细控制时优先使用 `exit 0 + JSON`。
 
 ## 8. 配置位置与作用域
 
@@ -408,7 +433,6 @@ Matcher 决定 hook 何时触发。不设置 matcher 等同于匹配所有。
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format.sh",
-            "args": [],
             "timeout": 30
           }
         ]
@@ -501,7 +525,7 @@ hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "$PROJECT_DIR/.claude/hooks/protect-files.sh"
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-files.sh"
           }
         ]
       }
@@ -517,7 +541,8 @@ protect-files.sh：
 FILE=$(jq -r '.tool_input.file_path')
 case "$FILE" in
   *.production.*|*.prod.*)
-    echo '{"decision":"deny","reason":"Cannot edit production config files."}'
+    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Cannot edit production config files."}}'
+    # 也可以直接把原因写到 stderr 并 exit 2；这里用 JSON 做结构化控制。
     exit 0
     ;;
 esac
@@ -535,7 +560,7 @@ exit 0
         "hooks": [
           {
             "type": "command",
-            "command": "cat $PROJECT_DIR/.claude/context/project-rules.md"
+            "command": "cat \"${CLAUDE_PROJECT_DIR}/.claude/context/project-rules.md\""
           }
         ]
       }

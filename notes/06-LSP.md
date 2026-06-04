@@ -100,8 +100,6 @@ Claude 可以使用 LSP 进行精确的代码导航：
 | `settings` | object | 通过 `workspace/didChangeConfiguration` 传给 server 的设置 |
 | `workspaceFolder` | string | 工作区文件夹路径 |
 | `startupTimeout` | number | 启动超时（毫秒） |
-| `shutdownTimeout` | number | 关闭超时（毫秒） |
-| `restartOnCrash` | boolean | 崩溃后是否自动重启 |
 | `maxRestarts` | number | 最大重启次数（默认 3） |
 
 ### 示例
@@ -171,9 +169,9 @@ Claude 可以使用 LSP 进行精确的代码导航：
 
 在 Discover 标签中搜索 "lsp"，找到对应语言的插件安装。
 
-### 4.2 手动配置
+### 4.2 临时或自定义配置
 
-在 `.claude/settings.json` 中添加 LSP 配置（不推荐，因为需要手动管理 server）。
+官方推荐通过插件提供 `.lsp.json` 或在 `plugin.json` 中内联 `lspServers`。如果只是临时验证某个语言服务器，建议创建一个最小 LSP 插件，而不是把 LSP 配置直接塞进普通 settings；普通 plugin `settings.json` 当前也只支持少量默认设置，不适合承载 LSP server 定义。
 
 ### 4.3 创建自定义 LSP 插件
 
@@ -185,27 +183,11 @@ Claude 可以使用 LSP 进行精确的代码导航：
 
 | 语言 | 插件 | 需要安装的二进制 |
 | --- | --- | --- |
-| Bash/Shell | `bash-lsp` | `bash-language-server` |
-| C/C++ | `clangd-lsp` | `clangd` |
-| C# | `csharp-lsp` | `csharp-ls` |
-| Clojure | `clojure-lsp` | `clojure-lsp` |
-| Dart/Flutter | `dart-lsp` | Dart SDK |
-| Elixir | `elixir-lsp` | `elixir-ls` |
-| Go | `gopls-lsp` | `gopls` |
-| Java | `jdtls-lsp` | `jdtls` |
-| Kotlin | `kotlin-lsp` | `kotlin-language-server` |
-| Lua | `lua-lsp` | `lua-language-server` |
-| Nix | `nix-lsp` | `nixd` |
-| OCaml | `ocaml-lsp` | `ocaml-lsp` |
-| PHP | `php-lsp` | `intelephense` |
 | Python | `pyright-lsp` | `pyright-langserver` |
-| Ruby | `ruby-lsp` | `solargraph` |
 | Rust | `rust-analyzer-lsp` | `rust-analyzer` |
-| Swift | `swift-lsp` | `sourcekit-lsp` |
-| Terraform | `terraform-lsp` | `terraform-ls` |
 | TypeScript/JS | `typescript-lsp` | `typescript-language-server` |
-| YAML | `yaml-lsp` | `yaml-language-server` |
-| Zig | `zig-lsp` | `zls` |
+
+官方 marketplace 和社区插件会持续变化。安装前以 `/plugin` 的 Discover 搜索结果为准；上表只列官方参考文档中明确提到的代表性插件。
 
 **安装步骤**：
 
@@ -253,7 +235,6 @@ my-lsp-plugin/
       ".myext": "my-language"
     },
     "startupTimeout": 10000,
-    "restartOnCrash": true,
     "maxRestarts": 3
   }
 }

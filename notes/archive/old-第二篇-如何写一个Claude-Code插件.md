@@ -1,11 +1,13 @@
 # GLM StatusLine 学习笔记（第二篇）：如何写一个 Claude Code 插件
 
+> **归档说明**：这篇是早期开发笔记，保留为历史记录。当前 Claude Code 插件 schema、缓存路径和实验组件说明以 `notes/01-插件系统概览.md` 到 `notes/11-实践案例-GLM-StatusLine.md` 为准。
+
 > 本篇以 GLM StatusLine 插件为实例，讲解 Claude Code 插件系统的核心概念、目录结构、开发流程和分发方式。如果你也想把一个已有的脚本包装成 Claude Code 插件，这篇可以当操作手册。
 >
 > 系列目录：
-> - [第一篇：Claude Code 底部显示 GLM Coding Plan 用量](Claude-Code-GLM-StatusLine-笔记.md)——单文件状态栏的实现原理
+> - [第一篇：Claude Code 底部显示 GLM Coding Plan 用量](old-第一篇-单文件状态栏笔记.md)——单文件状态栏的实现原理
 > - 第二篇：如何写一个 Claude Code 插件（本篇）
-> - [第三篇：Claude Code Skill 写法与扩展能力地图](docs/claude-code-skills-and-extensions-guide.md)
+> - [第三篇：Claude Code Skill 写法与扩展能力地图](../../docs/claude-code-skills-and-extensions-guide.md)
 
 ## 1. Claude Code 插件是什么
 
@@ -302,7 +304,7 @@ require(path.join(__dirname, '..', 'glm-statusline.js'));
 
 ```bash
 glm-statusline-install.js install      # 写入 settings.json
-glm-statusline-install.js configure    # 交互式或参数式配置
+glm-statusline-install.js configure    # 早期方案：交互式或参数式配置；当前主线只保留交互式配置
 glm-statusline-install.js uninstall    # 移除 settings.json 中的 statusLine
 glm-statusline-install.js print-command # 调试用，输出命令字符串
 ```
@@ -385,7 +387,7 @@ if (command.includes('glm-statusline')) {
 Claude Code 安装插件后，会把插件文件复制到一个缓存目录：
 
 ```text
-~/.claude/plugins/.cache/glm-statusline@bingqiangzhou-tools/1.2.3/bin/glm-statusline.js
+~/.claude/plugins/cache/bingqiangzhou-tools/glm-statusline/1.2.3/bin/glm-statusline.js
 ```
 
 `settings.json` 里的 `statusLine.command` 指向这个路径。
@@ -399,7 +401,7 @@ claude plugin update glm-statusline@bingqiangzhou-tools
 Claude Code 会创建一个新的缓存目录：
 
 ```text
-~/.claude/plugins/.cache/glm-statusline@bingqiangzhou-tools/1.2.4/bin/glm-statusline.js
+~/.claude/plugins/cache/bingqiangzhou-tools/glm-statusline/1.2.4/bin/glm-statusline.js
 ```
 
 但 `settings.json` 里的 `statusLine.command` 仍然指向 `1.2.3` 的路径。如果 Claude Code 清理了旧缓存，状态栏就坏了。
@@ -421,7 +423,7 @@ const path = require('path');
 
 const cacheDir = path.join(
   os.homedir(),
-  '.claude/plugins/.cache/glm-statusline@bingqiangzhou-tools'
+  '.claude/plugins/cache/bingqiangzhou-tools/glm-statusline'
 );
 
 // 找到最新的版本目录
@@ -715,7 +717,7 @@ main().catch((err) => {
 
 - 8 个显示字段不适合用开关一个个试。
 - 实时预览让用户看到效果，不用等下一次交互。
-- 同时保留参数式配置，满足脚本化需求。
+- 早期方案曾考虑保留参数式配置；当前主线实现只保留交互式配置。
 
 ## 16. 总结
 
@@ -740,7 +742,7 @@ main().catch((err) => {
 
 如果这篇对你有帮助，可以继续看：
 
-- [第一篇：Claude Code 底部显示 GLM Coding Plan 用量](Claude-Code-GLM-StatusLine-笔记.md)
-- [第三篇：Claude Code Skill 写法与扩展能力地图](docs/claude-code-skills-and-extensions-guide.md)
-- [插件构建过程详细文档](docs/claude-code-plugin-build-guide.md)
-- [CHANGELOG](CHANGELOG.md)
+- [第一篇：Claude Code 底部显示 GLM Coding Plan 用量](old-第一篇-单文件状态栏笔记.md)
+- [第三篇：Claude Code Skill 写法与扩展能力地图](../../docs/claude-code-skills-and-extensions-guide.md)
+- [插件构建过程详细文档](../../docs/claude-code-plugin-build-guide.md)
+- [CHANGELOG](../../CHANGELOG.md)

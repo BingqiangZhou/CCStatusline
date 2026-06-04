@@ -88,17 +88,17 @@ When answering questions:
 | --- | --- | --- | --- |
 | `name` | string | 推荐 | 风格名称，用于显示和选择 |
 | `description` | string | 推荐 | 详细描述，帮助选择合适的风格 |
-| `keep-coding-instructions` | boolean | 否 | `true`（默认）= 保留 coding 相关指令。设为 `false` 会移除默认的编码指令，适合纯对话场景。 |
-| `force-for-plugin` | boolean | 否 | `true` = 当插件启用时强制使用此风格，不可被用户覆盖。适合必须保持的团队规范。 |
+| `keep-coding-instructions` | boolean | 否 | `true` = 保留 Claude Code 内置的软件工程指令。默认 `false`，不写时会更像一个非编码角色。 |
+| `force-for-plugin` | boolean | 否 | 插件 output style 专用。`true` = 插件启用时自动套用此风格并覆盖用户的 `outputStyle` 设置。多个插件都强制时，使用先加载的那个。 |
 
 ### keep-coding-instructions 详解
 
 ```yaml
-# 保留编码指令（默认）
+# 保留编码指令
 # Claude 仍然知道怎么写代码
 keep-coding-instructions: true
 
-# 移除编码指令
+# 移除编码指令（默认）
 # Claude 的回答更侧重于非编程场景
 keep-coding-instructions: false
 ```
@@ -160,19 +160,19 @@ Output Style 可以在多个层面设置：
 ### 优先级
 
 ```text
-force-for-plugin: true 的插件风格
-  > 用户/项目设置中指定的风格
-  > 普通插件风格
+force-for-plugin: true 的插件风格（插件启用时自动套用）
+  > settings 中指定的 outputStyle
+  > 用户/项目/插件提供的可选风格
   > 内置 Default
 ```
 
 ### 切换风格
 
 ```text
-/output-style
+/config → Output style
 ```
 
-在会话中切换当前使用的输出风格。
+也可以直接编辑 settings 里的 `outputStyle`。Output style 属于 system prompt，Claude Code 在 session 开始时读取；修改后通常需要 `/clear` 或新开 session 才会完全生效。
 
 ## 6. 插件中的 Output Styles
 
@@ -185,6 +185,13 @@ my-plugin/
 │   └── detailed.md
 └── .claude-plugin/
     └── plugin.json
+```
+
+个人和项目级自定义风格分别放在：
+
+```text
+~/.claude/output-styles/
+.claude/output-styles/
 ```
 
 ### 自定义路径
@@ -318,7 +325,7 @@ Be more concise in your responses.
 
 ### 8.3 保持 keep-coding-instructions: true
 
-除非你的插件是纯对话/非编程场景，否则保持默认值。移除编码指令会显著影响 Claude 的代码能力。
+除非你的风格是纯对话、写作、数据分析等非编程场景，否则显式设置 `keep-coding-instructions: true`。因为它默认是 `false`，忘记写会让 Claude Code 不再继承内置的软件工程工作方式。
 
 ### 8.4 风格指令要可量化
 

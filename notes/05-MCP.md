@@ -140,10 +140,10 @@ Claude Code 启动一个子进程，通过 stdin/stdout 通信。
 
 ```bash
 # 添加远程 HTTP server
-claude mcp add my-server --transport http https://mcp.example.com/api
+claude mcp add --transport http my-server https://mcp.example.com/api
 
 # 添加本地 stdio server
-claude mcp add playwright -- npx -y @playwright/mcp@latest
+claude mcp add --transport stdio playwright -- npx -y @playwright/mcp@latest
 
 # 用 JSON 直接添加
 claude mcp add-json my-server '{"type":"stdio","command":"npx","args":["-y","my-server"]}'
@@ -199,7 +199,7 @@ claude mcp remove my-server
 | `url` | http/sse/ws | server 的 URL |
 | `headers` | http/sse/ws | 请求头（用于认证） |
 | `headersHelper` | http/sse/ws | 动态生成 headers 的命令 |
-| `timeout` | http/sse/ws | 请求超时（毫秒） |
+| `timeout` | 全部 | 单个工具调用超时（毫秒）；可覆盖全局 `MCP_TOOL_TIMEOUT` |
 | `alwaysLoad` | 全部 | 是否在会话启动时自动加载 |
 
 ### stdio server 示例
@@ -301,7 +301,7 @@ claude mcp remove my-server
 
 - **自动生命周期**：插件启用时 server 自动启动
 - **环境变量**：使用 `${CLAUDE_PLUGIN_ROOT}` 引用插件文件、`${CLAUDE_PLUGIN_DATA}` 引用持久状态、`${CLAUDE_PROJECT_DIR}` 引用项目根目录
-- **热加载**：启用/禁用插件后运行 `/reload-plugins` 刷新 MCP server
+- **热加载边界**：插件更新后，已启动的 MCP server 仍使用旧插件路径；运行 `/reload-plugins` 后才会切换到新版路径
 
 ## 6. 环境变量展开
 
@@ -345,8 +345,8 @@ claude mcp remove my-server
 ### 使用 CLI 指定作用域
 
 ```bash
-claude mcp add my-server --scope project -- npx my-server
-claude mcp add my-server --scope user -- npx my-server
+claude mcp add --scope project my-server -- npx my-server
+claude mcp add --scope user my-server -- npx my-server
 # 默认 --scope local
 ```
 
@@ -368,8 +368,8 @@ claude mcp add my-server --scope user -- npx my-server
 
 ### 8.4 超时
 
-- 默认启动超时 30 秒
-- 可通过 `MCP_TIMEOUT` 环境变量调整（毫秒）：
+- 标准连接启动超时通常为 5 秒；可通过 `MCP_TIMEOUT` 环境变量调整启动连接等待时间（毫秒）。
+- 单个工具调用超时可用 `MCP_TOOL_TIMEOUT` 或 server 配置里的 `timeout` 字段调整。
 
 ```bash
 MCP_TIMEOUT=60000 claude
@@ -390,18 +390,20 @@ MCP_TIMEOUT=60000 claude
 }
 ```
 
-### 9.2 云服务用 http/sse
+### 9.2 云服务优先用 http
 
 ```json
 {
   "mcpServers": {
-    "asana": {
-      "type": "sse",
-      "url": "https://mcp.asana.com/sse"
+    "cloud-api": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp"
     }
   }
 }
 ```
+
+SSE 传输仍可用于兼容旧服务，但官方已建议新项目优先使用 HTTP。
 
 ### 9.3 敏感信息用环境变量
 
