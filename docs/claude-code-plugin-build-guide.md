@@ -84,10 +84,10 @@ glm-statusline-install.js install
 或者安装后单独配置：
 
 ```text
-/glm-statusline:configure --show=5h,context,session
+/glm-statusline:configure
 ```
 
-配置会写到 `~/.claude/glm-statusline-config.json`。配置命令会马上运行 `glm-statusline.js --preview` 并把选择后的效果打印在当前会话中；真实底部 status line 则会在下一次 Claude Code 交互或 refresh interval 后刷新。
+无参数配置会进入编号选择界面。用户输入数字切换字段后，脚本会马上写入 `~/.claude/glm-statusline-config.json`，运行 `glm-statusline.js --preview`，并把选择后的效果打印在当前会话中；真实底部 status line 则会在下一次 Claude Code 交互或 refresh interval 后刷新。参数式配置仍然保留，适合脚本化使用。
 
 卸载状态栏配置：
 
@@ -177,7 +177,7 @@ npm test
 - `bin/glm-statusline.js --preview` 能输出 `Preview:` 和当前配置对应的状态栏。
 - `bin/glm-statusline.js --plan-details` 能输出 plan、5H、MCP、可选 weekly、Day/30D 和 API/cache 状态。
 - `bin/glm-statusline-install.js install` 能在临时 settings 文件中写入正确 `statusLine`。
-- `bin/glm-statusline-install.js configure` 能写入显示配置并打印预览。
+- `bin/glm-statusline-install.js configure` 无参数时能进入交互选择界面，每次选择后写入显示配置并打印预览；带参数时能直接写入配置并打印预览。
 - `bin/glm-statusline-install.js uninstall` 能移除本插件管理的 `statusLine`。
 
 ## 常用配置

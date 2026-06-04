@@ -68,16 +68,16 @@ async function main() {
   const plugin = readJson('.claude-plugin/plugin.json');
   assert.strictEqual(plugin.name, 'glm-statusline');
   assert.match(plugin.description, /GLM/i);
-  assert.strictEqual(plugin.version, '1.2.0');
+  assert.strictEqual(plugin.version, '1.2.1');
 
   const marketplace = readJson('.claude-plugin/marketplace.json');
   assert.strictEqual(marketplace.name, 'bingqiangzhou-tools');
   assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.source === './'));
-  assert.strictEqual(marketplace.version, '1.2.0');
-  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.2.0'));
+  assert.strictEqual(marketplace.version, '1.2.1');
+  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.2.1'));
 
   const packageJson = readJson('package.json');
-  assert.strictEqual(packageJson.version, '1.2.0');
+  assert.strictEqual(packageJson.version, '1.2.1');
 
   assertFile('bin/glm-statusline.js');
   assertFile('bin/glm-statusline-install.js');
@@ -347,6 +347,25 @@ async function main() {
   assert.deepStrictEqual(savedConfig.display, ['plan', '5h', 'mcp', 'context']);
   assert.strictEqual(savedConfig.barWidth, 4);
   assert.strictEqual(savedConfig.layout, 'full');
+
+  const interactiveConfigFile = path.join(tempDir, 'interactive-config.json');
+  const interactive = run(process.execPath, ['bin/glm-statusline-install.js', 'configure'], {
+    input: '1\n3\nq\n',
+    env: {
+      GLM_STATUSLINE_CONFIG_FILE: interactiveConfigFile,
+      GLM_STATUSLINE_CACHE_FILE: path.join(tempDir, 'interactive-cache.json'),
+      ANTHROPIC_AUTH_TOKEN: '',
+      ANTHROPIC_BASE_URL: '',
+      GLM_STATUSLINE_PLAN: 'GLM Lite',
+    },
+  });
+  assert.strictEqual(interactive.status, 0, interactive.stderr);
+  assert.match(interactive.stdout, /Select fields to show/);
+  assert.ok((interactive.stdout.match(/Preview:/g) || []).length >= 3);
+  assert.match(interactive.stdout, /1\. \[x\] plan/);
+  assert.match(interactive.stdout, /3\. \[x\] mcp/);
+  const interactiveConfig = JSON.parse(fs.readFileSync(interactiveConfigFile, 'utf8'));
+  assert.deepStrictEqual(interactiveConfig.display, ['plan', '5h', 'mcp', 'context', 'session']);
 
   const launcherStatus = run(process.execPath, [launcherFile], {
     input: JSON.stringify({

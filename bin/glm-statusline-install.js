@@ -4,6 +4,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const readline = require('readline');
 const { spawnSync } = require('child_process');
 
 const PLUGIN_ROOT = path.resolve(__dirname, '..');
@@ -41,6 +42,17 @@ const DISPLAY_ALIASES = {
   '30d': '30d',
   month: '30d',
   monthly: '30d',
+};
+const FIELD_ORDER = ['plan', '5h', 'mcp', 'context', 'model', 'session', 'day', '30d'];
+const FIELD_LABELS = {
+  plan: 'plan',
+  '5h': '5h quota',
+  mcp: 'mcp/tools',
+  context: 'context',
+  model: 'model',
+  session: 'session tokens',
+  day: 'day tokens',
+  '30d': '30d tokens',
 };
 
 function shellQuote(value) {
@@ -119,6 +131,23 @@ function parseConfigureArgs(args) {
 function writeConfig(config) {
   fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
   fs.writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+function baseConfigFromFile() {
+  const previous = readJsonFile(CONFIG_FILE);
+  return {
+    ...previous,
+    display: normalizeDisplayList(previous.display).length
+      ? normalizeDisplayList(previous.display)
+      : ['5h', 'context', 'session'],
+    layout: previous.layout || 'compact',
+    barWidth: Number(previous.barWidth) || 8,
+  };
+}
+
+function orderInteractiveDisplay(display) {
+  const selected = new Set(display);
+  return FIELD_ORDER.filter((field) => selected.has(field));
 }
 
 function backupSettings() {
@@ -204,28 +233,101 @@ function renderPreview() {
   return result.stdout.trim();
 }
 
-function configure(args = []) {
-  const options = parseConfigureArgs(args);
-  const previous = readJsonFile(CONFIG_FILE);
-  const next = { ...previous };
-  if (options.display) next.display = options.display;
-  if (options.layout) next.layout = options.layout;
-  if (options.barWidth !== undefined) next.barWidth = Math.round(options.barWidth);
-  if (!next.display) next.display = ['5h', 'context', 'session'];
-  if (!next.layout) next.layout = 'compact';
-  if (!next.barWidth) next.barWidth = 8;
+function printInteractiveState(config) {
+  const selected = new Set(config.display);
+  console.log('');
+  console.log('Select fields to show. Type a number to toggle it, q to finish.');
+  FIELD_ORDER.forEach((field, index) => {
+    console.log(`${index + 1}. [${selected.has(field) ? 'x' : ' '}] ${FIELD_LABELS[field]}`);
+  });
+  console.log(`Layout: ${config.layout} · Bar width: ${config.barWidth}`);
+  console.log(renderPreview());
+}
 
-  writeConfig(next);
+function saveInteractiveConfig(config) {
+  writeConfig(config);
   console.log(`GLM StatusLine config written to ${CONFIG_FILE}`);
   console.log(renderPreview());
 }
 
-function install(args = []) {
+function toggleField(config, input) {
+  const index = Number(String(input).trim()) - 1;
+  if (!Number.isInteger(index) || index < 0 || index >= FIELD_ORDER.length) {
+    console.log(`Ignored input: ${input}`);
+    return config;
+  }
+
+  const field = FIELD_ORDER[index];
+  const display = [...config.display];
+  const existingIndex = display.indexOf(field);
+  if (existingIndex >= 0) {
+    if (display.length === 1) {
+      console.log('At least one field must stay selected.');
+      return config;
+    }
+    display.splice(existingIndex, 1);
+  } else {
+    display.push(field);
+  }
+  return { ...config, display: orderInteractiveDisplay(display) };
+}
+
+async function interactiveConfigure() {
+  let config = baseConfigFromFile();
+  writeConfig(config);
+  printInteractiveState(config);
+
+  const handleInput = (line) => {
+    const value = String(line || '').trim().toLowerCase();
+    if (!value || value === 'q' || value === 'quit' || value === 'done') return false;
+    config = toggleField(config, value);
+    writeConfig(config);
+    printInteractiveState(config);
+    return true;
+  };
+
+  if (!process.stdin.isTTY) {
+    const input = fs.readFileSync(0, 'utf8');
+    for (const line of input.split(/\r?\n/)) {
+      if (!handleInput(line)) break;
+    }
+    return;
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: 'Choose field number, or q to finish: ',
+  });
+  rl.prompt();
+  for await (const line of rl) {
+    if (!handleInput(line)) break;
+    rl.prompt();
+  }
+  rl.close();
+}
+
+async function configure(args = []) {
+  if (!args.length) {
+    await interactiveConfigure();
+    return;
+  }
+
+  const options = parseConfigureArgs(args);
+  const next = baseConfigFromFile();
+  if (options.display) next.display = options.display;
+  if (options.layout) next.layout = options.layout;
+  if (options.barWidth !== undefined) next.barWidth = Math.round(options.barWidth);
+
+  saveInteractiveConfig(next);
+}
+
+async function install(args = []) {
   if (!fs.existsSync(LAUNCHER)) {
     throw new Error(`Status line launcher not found: ${LAUNCHER}`);
   }
   if (args.some((arg) => /^--(show|display|layout|bar-width|barWidth)=/.test(arg))) {
-    configure(args);
+    await configure(args);
   }
   writeStableLauncher();
 
@@ -296,14 +398,14 @@ Environment:
 `);
 }
 
-function main() {
+async function main() {
   const [command = 'install', ...args] = process.argv.slice(2);
   if (command === 'install' || command === 'enable') {
-    install(args);
+    await install(args);
     return;
   }
   if (command === 'configure' || command === 'config') {
-    configure(args);
+    await configure(args);
     return;
   }
   if (command === 'uninstall' || command === 'disable' || command === 'remove') {
@@ -322,7 +424,10 @@ function main() {
 }
 
 try {
-  main();
+  main().catch((err) => {
+    console.error(err.message || String(err));
+    process.exitCode = 1;
+  });
 } catch (err) {
   console.error(err.message || String(err));
   process.exitCode = 1;

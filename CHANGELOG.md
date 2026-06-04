@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.1 - 2026-06-04
+
+- Changed no-argument `/glm-statusline:configure` into an interactive selector that saves and previews after every field toggle.
+
 ## 1.2.0 - 2026-06-04
 
 - Simplified the live status line to one row: 5H quota/reset, Context, and Session tokens.

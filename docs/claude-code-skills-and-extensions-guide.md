@@ -352,7 +352,7 @@ Monitors 适合“Claude 应该被动知道外部状态变化”的场景。它�
    - 输出可复制的诊断报告。
 
 2. 增强 `/glm-statusline:configure`
-   - 当前已经支持选择 status line 显示字段并打印预览。
+   - 当前已经支持无参数进入字段选择界面，每次 toggle 后保存配置并打印预览。
    - 后续可以继续扩展为交互式生成 GLM/Z.ai `env` 配置。
    - 支持国内 `open.bigmodel.cn` 和国际 `api.z.ai`。
 

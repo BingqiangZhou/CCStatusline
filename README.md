@@ -65,10 +65,10 @@ glm-statusline.js --plan-details
 
 ### 4. 显示配置与预览
 
-插件提供 `/glm-statusline:configure`，用于选择状态栏显示哪些字段，并立即打印选择后的预览效果：
+插件提供 `/glm-statusline:configure`，用于进入一个选择界面，逐个选择状态栏显示哪些字段。每次选择都会保存配置，并立即打印选择后的预览效果：
 
 ```text
-/glm-statusline:configure --show=plan,5h,mcp,context,session --layout=full --bar-width=8
+/glm-statusline:configure
 ```
 
 配置会写入：
@@ -80,6 +80,12 @@ glm-statusline.js --plan-details
 预览会直接输出在当前 Claude Code 对话中，例如：
 
 ```text
+Select fields to show. Type a number to toggle it, q to finish.
+1. [x] plan
+2. [x] 5h quota
+3. [ ] mcp/tools
+4. [x] context
+
 Preview:
 GLM Lite │ 5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% │ Context █████░░░ 68% (200K) │ Session 160K
 ```
@@ -202,7 +208,7 @@ npm test
 ### 5. 选择显示字段并预览
 
 ```text
-/glm-statusline:configure --show=plan,5h,mcp,context,session,day,30d --layout=full
+/glm-statusline:configure
 ```
 
 支持字段：
@@ -217,6 +223,12 @@ npm test
 - `30d`：近 30 天 token。
 
 如果只想保留最简洁显示：
+
+```text
+运行 /glm-statusline:configure 后，只保留 5h、context、session 三项为选中状态，然后输入 q 结束。
+```
+
+也保留参数式配置，方便脚本化使用：
 
 ```text
 /glm-statusline:configure --show=5h,context,session --layout=compact
