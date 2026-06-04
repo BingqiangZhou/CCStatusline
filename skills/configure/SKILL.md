@@ -1,6 +1,5 @@
 ---
 description: Open an interactive selector for choosing which GLM StatusLine fields are shown, saving and previewing after every choice.
-argument-hint: "[--show=plan,5h,mcp,context,model,session,day,30d] [--layout=compact|full] [--bar-width=1-20]"
 disable-model-invocation: true
 ---
 
@@ -9,10 +8,10 @@ disable-model-invocation: true
 Run the interactive configurator from the plugin `bin` directory:
 
 ```bash
-glm-statusline-install.js configure $ARGUMENTS
+glm-statusline-install.js configure
 ```
 
-When the user invokes `/glm-statusline:configure` without arguments, the command opens a numbered selector. The user can type a number to toggle one field; after every toggle, the command saves the config and prints a fresh `Preview:` block.
+The command opens a numbered selector. The user can type a number to toggle one field; after every toggle, the command saves the config and prints a fresh `Preview:` block.
 
 Supported fields are:
 

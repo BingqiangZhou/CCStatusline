@@ -43,29 +43,9 @@ const DEFAULT_CONFIG_FILE = path.join(HOME, '.claude', 'glm-statusline-config.js
 const DEFAULT_CONTEXT_WINDOW = 200000;
 const API_TIMEOUT_MS = Number(process.env.GLM_STATUSLINE_TIMEOUT_MS || 2200);
 const CACHE_TTL_MS = Number(process.env.GLM_STATUSLINE_CACHE_TTL_MS || 60_000);
-const BAR_WIDTH = Number(process.env.GLM_STATUSLINE_BAR_WIDTH || 8);
+const BAR_WIDTH = 8;
 const DEFAULT_DISPLAY = ['5h', 'context', 'session'];
-const DISPLAY_ALIASES = {
-  plan: 'plan',
-  package: 'plan',
-  quota: '5h',
-  '5h': '5h',
-  fivehour: '5h',
-  five_hour: '5h',
-  mcp: 'mcp',
-  tool: 'mcp',
-  tools: 'mcp',
-  context: 'context',
-  ctx: 'context',
-  model: 'model',
-  session: 'session',
-  sess: 'session',
-  day: 'day',
-  today: 'day',
-  '30d': '30d',
-  month: '30d',
-  monthly: '30d',
-};
+const DISPLAY_FIELDS = ['plan', '5h', 'mcp', 'context', 'model', 'session', 'day', '30d'];
 
 const PLAN_KEYS = [
   'planName',
@@ -99,26 +79,12 @@ function readJsonFile(filePath) {
   }
 }
 
-function boolFromValue(value) {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') return value !== 0;
-  if (typeof value !== 'string') return null;
-  if (/^(1|true|yes|on)$/i.test(value.trim())) return true;
-  if (/^(0|false|no|off)$/i.test(value.trim())) return false;
-  return null;
-}
-
-function normalizeDisplayItem(item) {
-  const key = String(item || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
-  return DISPLAY_ALIASES[key] || '';
-}
-
 function normalizeDisplayList(value) {
-  const raw = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
+  const raw = Array.isArray(value) ? value : [];
   const seen = new Set();
   const display = [];
   for (const item of raw) {
-    const normalized = normalizeDisplayItem(item);
+    const normalized = DISPLAY_FIELDS.includes(item) ? item : '';
     if (normalized && !seen.has(normalized)) {
       seen.add(normalized);
       display.push(normalized);
@@ -127,48 +93,18 @@ function normalizeDisplayList(value) {
   return display;
 }
 
-function displayFromBooleans(config, fallback) {
-  const fields = [
-    ['showPlan', 'plan'],
-    ['show5h', '5h'],
-    ['showMcp', 'mcp'],
-    ['showContext', 'context'],
-    ['showModel', 'model'],
-    ['showSession', 'session'],
-    ['showDay', 'day'],
-    ['show30d', '30d'],
-  ];
-  let display = [...fallback];
-  let changed = false;
-  for (const [key, field] of fields) {
-    const value = boolFromValue(config?.[key]);
-    if (value === null) continue;
-    changed = true;
-    display = display.filter((item) => item !== field);
-    if (value) display.push(field);
-  }
-  return changed ? display : fallback;
-}
-
 function readStatusConfig(env = process.env) {
   const configPath = expandHome(env.GLM_STATUSLINE_CONFIG_FILE || DEFAULT_CONFIG_FILE);
   const fileConfig = readJsonFile(configPath) || {};
   const fromFile = normalizeDisplayList(fileConfig.display);
-  const fromEnv = normalizeDisplayList(env.GLM_STATUSLINE_DISPLAY || env.GLM_STATUSLINE_SHOW);
-  let display = fromEnv.length ? fromEnv : fromFile.length ? fromFile : [...DEFAULT_DISPLAY];
-  display = displayFromBooleans(fileConfig, display);
+  let display = fromFile.length ? fromFile : [...DEFAULT_DISPLAY];
   if (!display.length) display = [...DEFAULT_DISPLAY];
-
-  const barWidth = Number(fileConfig.barWidth ?? env.GLM_STATUSLINE_BAR_WIDTH ?? BAR_WIDTH);
-  const layout = String(fileConfig.layout || env.GLM_STATUSLINE_LAYOUT || 'compact').toLowerCase() === 'full' ? 'full' : 'compact';
   const maxWidth = readMaxWidth(env);
 
   return {
     configPath,
     display,
-    layout,
     maxWidth,
-    barWidth: Number.isFinite(barWidth) && barWidth > 0 ? Math.max(1, Math.min(20, Math.round(barWidth))) : BAR_WIDTH,
   };
 }
 
@@ -913,13 +849,6 @@ function trimNumber(value) {
   return rounded.replace(/\.0$/, '');
 }
 
-function formatContextMax(value) {
-  const n = Number(value) || DEFAULT_CONTEXT_WINDOW;
-  if (n >= 1_000_000) return `${trimNumber(n / 1_000_000)}M`;
-  if (n >= 1000) return `${trimNumber(n / 1000)}K`;
-  return String(Math.round(n));
-}
-
 function formatLocalDateTime(ms) {
   if (!Number.isFinite(ms)) return '--';
   const date = new Date(ms);
@@ -1056,12 +985,9 @@ async function renderStatusLine(sessionContext = {}) {
   const planName = quota.planName || normalizePlanName(env.GLM_STATUSLINE_PLAN) || 'GLM';
   const fields = {
     plan: planName,
-    '5h': `5H ${renderBar(fiveHourPercent, config.barWidth)} @${fiveHourReset}`,
-    mcp: `MCP ${renderBar(quota.mcpPercent ?? 0, config.barWidth)}`,
-    context:
-      config.layout === 'full'
-        ? `Context ${renderBar(contextInfo.percent, config.barWidth)} (${formatContextMax(contextInfo.max)})`
-        : `Context ${renderBar(contextInfo.percent, config.barWidth)}`,
+    '5h': `5H ${renderBar(fiveHourPercent)} @${fiveHourReset}`,
+    mcp: `MCP ${renderBar(quota.mcpPercent ?? 0)}`,
+    context: `Context ${renderBar(contextInfo.percent)}`,
     model: `Model ${mapClaudeModelToGlm(sessionContext, env)}`,
     session: `Session ${formatTokens(sessionTokens)}`,
     day: `Day ${formatTokens(dayTokens ?? 0)}`,

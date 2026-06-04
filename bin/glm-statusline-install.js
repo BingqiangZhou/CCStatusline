@@ -22,27 +22,6 @@ const PLUGIN_NAME = 'glm-statusline';
 const PLUGIN_CACHE_ROOT =
   process.env.GLM_STATUSLINE_PLUGIN_CACHE_ROOT ||
   path.join(os.homedir(), '.claude', 'plugins', 'cache', MARKETPLACE_NAME, PLUGIN_NAME);
-const DISPLAY_ALIASES = {
-  plan: 'plan',
-  package: 'plan',
-  quota: '5h',
-  '5h': '5h',
-  fivehour: '5h',
-  five_hour: '5h',
-  mcp: 'mcp',
-  tool: 'mcp',
-  tools: 'mcp',
-  context: 'context',
-  ctx: 'context',
-  model: 'model',
-  session: 'session',
-  sess: 'session',
-  day: 'day',
-  today: 'day',
-  '30d': '30d',
-  month: '30d',
-  monthly: '30d',
-};
 const FIELD_ORDER = ['plan', '5h', 'mcp', 'context', 'model', 'session', 'day', '30d'];
 const FIELD_LABELS = {
   plan: 'plan',
@@ -88,44 +67,18 @@ function readJsonFile(filePath) {
   }
 }
 
-function normalizeDisplayItem(item) {
-  const key = String(item || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
-  return DISPLAY_ALIASES[key] || '';
-}
-
 function normalizeDisplayList(value) {
-  const raw = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
+  const raw = Array.isArray(value) ? value : [];
   const display = [];
   const seen = new Set();
   for (const item of raw) {
-    const normalized = normalizeDisplayItem(item);
+    const normalized = FIELD_ORDER.includes(item) ? item : '';
     if (normalized && !seen.has(normalized)) {
       seen.add(normalized);
       display.push(normalized);
     }
   }
   return display;
-}
-
-function parseConfigureArgs(args) {
-  const options = {};
-  for (const arg of args) {
-    if (arg.startsWith('--show=')) options.display = normalizeDisplayList(arg.slice('--show='.length));
-    else if (arg.startsWith('--display=')) options.display = normalizeDisplayList(arg.slice('--display='.length));
-    else if (arg.startsWith('--layout=')) options.layout = arg.slice('--layout='.length).trim().toLowerCase();
-    else if (arg.startsWith('--bar-width=')) options.barWidth = Number(arg.slice('--bar-width='.length));
-    else if (arg.startsWith('--barWidth=')) options.barWidth = Number(arg.slice('--barWidth='.length));
-  }
-  if (options.display && !options.display.length) {
-    throw new Error('No valid fields in --show. Use any of: plan,5h,mcp,context,model,session,day,30d');
-  }
-  if (options.layout && !['compact', 'full'].includes(options.layout)) {
-    throw new Error('Invalid --layout. Use compact or full.');
-  }
-  if (options.barWidth !== undefined && (!Number.isFinite(options.barWidth) || options.barWidth < 1 || options.barWidth > 20)) {
-    throw new Error('Invalid --bar-width. Use a number from 1 to 20.');
-  }
-  return options;
 }
 
 function writeConfig(config) {
@@ -136,12 +89,9 @@ function writeConfig(config) {
 function baseConfigFromFile() {
   const previous = readJsonFile(CONFIG_FILE);
   return {
-    ...previous,
     display: normalizeDisplayList(previous.display).length
       ? normalizeDisplayList(previous.display)
       : ['5h', 'context', 'session'],
-    layout: previous.layout || 'compact',
-    barWidth: Number(previous.barWidth) || 8,
   };
 }
 
@@ -240,7 +190,6 @@ function printInteractiveState(config) {
   FIELD_ORDER.forEach((field, index) => {
     console.log(`${index + 1}. [${selected.has(field) ? 'x' : ' '}] ${FIELD_LABELS[field]}`);
   });
-  console.log(`Layout: ${config.layout} · Bar width: ${config.barWidth}`);
   console.log(renderPreview());
 }
 
@@ -314,26 +263,18 @@ async function interactiveConfigure() {
 }
 
 async function configure(args = []) {
-  if (!args.length) {
-    await interactiveConfigure();
-    return;
+  if (args.length) {
+    throw new Error('Use the interactive selector: glm-statusline-install.js configure');
   }
-
-  const options = parseConfigureArgs(args);
-  const next = baseConfigFromFile();
-  if (options.display) next.display = options.display;
-  if (options.layout) next.layout = options.layout;
-  if (options.barWidth !== undefined) next.barWidth = Math.round(options.barWidth);
-
-  saveInteractiveConfig(next);
+  await interactiveConfigure();
 }
 
 async function install(args = []) {
   if (!fs.existsSync(LAUNCHER)) {
     throw new Error(`Status line launcher not found: ${LAUNCHER}`);
   }
-  if (args.some((arg) => /^--(show|display|layout|bar-width|barWidth)=/.test(arg))) {
-    await configure(args);
+  if (args.length) {
+    throw new Error('Install does not take display arguments. Run /glm-statusline:configure after install.');
   }
   writeStableLauncher();
 
@@ -358,9 +299,7 @@ async function install(args = []) {
   if (backupPath) console.log(`Backup written to ${backupPath}`);
   console.log(`Command: ${settings.statusLine.command}`);
   console.log(`Launcher: ${STABLE_LAUNCHER_FILE}`);
-  if (!args.some((arg) => /^--(show|display|layout|bar-width|barWidth)=/.test(arg))) {
-    console.log(renderPreview());
-  }
+  console.log(renderPreview());
   printInstallNextSteps();
 }
 
@@ -393,8 +332,7 @@ function uninstall(force = false) {
 function printUsage() {
   console.log(`Usage:
   glm-statusline-install.js install
-  glm-statusline-install.js install --show=5h,context,session --layout=compact --bar-width=8
-  glm-statusline-install.js configure --show=plan,5h,mcp,context,session,day,30d
+  glm-statusline-install.js configure
   glm-statusline-install.js uninstall [--force]
   glm-statusline-install.js print-command
 

@@ -1,14 +1,14 @@
 ---
-description: Enable the GLM status line in Claude Code user settings after the plugin is installed, optionally choosing which fields to display.
-argument-hint: "[--show=plan,5h,mcp,context,model,session,day,30d] [--layout=compact|full] [--bar-width=1-20]"
+description: Enable the GLM status line in Claude Code user settings after the plugin is installed.
+disable-model-invocation: true
 ---
 
 # Install GLM StatusLine
 
-Run the plugin installer from the plugin `bin` directory, passing any user-provided arguments:
+Run the plugin installer from the plugin `bin` directory:
 
 ```bash
-glm-statusline-install.js install $ARGUMENTS
+glm-statusline-install.js install
 ```
 
 Then tell the user that the status line is enabled and will refresh after their next Claude Code interaction. Include the `Preview:` block from the command output when present.

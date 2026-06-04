@@ -68,16 +68,16 @@ async function main() {
   const plugin = readJson('.claude-plugin/plugin.json');
   assert.strictEqual(plugin.name, 'glm-statusline');
   assert.match(plugin.description, /GLM/i);
-  assert.strictEqual(plugin.version, '1.2.3');
+  assert.strictEqual(plugin.version, '1.2.4');
 
   const marketplace = readJson('.claude-plugin/marketplace.json');
   assert.strictEqual(marketplace.name, 'bingqiangzhou-tools');
   assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.source === './'));
-  assert.strictEqual(marketplace.version, '1.2.3');
-  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.2.3'));
+  assert.strictEqual(marketplace.version, '1.2.4');
+  assert.ok(marketplace.plugins.some((entry) => entry.name === 'glm-statusline' && entry.version === '1.2.4'));
 
   const packageJson = readJson('package.json');
-  assert.strictEqual(packageJson.version, '1.2.3');
+  assert.strictEqual(packageJson.version, '1.2.4');
 
   assertFile('bin/glm-statusline.js');
   assertFile('bin/glm-statusline-install.js');
@@ -87,6 +87,11 @@ async function main() {
   assertFile('skills/uninstall/SKILL.md');
   assertFile('docs/claude-code-plugin-build-guide.md');
   assertFile('docs/claude-code-skills-and-extensions-guide.md');
+
+  const configureSkill = fs.readFileSync(path.join(root, 'skills/configure/SKILL.md'), 'utf8');
+  const installSkill = fs.readFileSync(path.join(root, 'skills/install/SKILL.md'), 'utf8');
+  assert.doesNotMatch(configureSkill, /--show|--layout|--bar-width|argument-hint/);
+  assert.doesNotMatch(installSkill, /--show|--layout|--bar-width|argument-hint/);
 
   const skillsGuide = fs.readFileSync(
     path.join(root, 'docs/claude-code-skills-and-extensions-guide.md'),
@@ -114,6 +119,7 @@ async function main() {
       ANTHROPIC_BASE_URL: '',
       GLM_STATUSLINE_CONFIG_FILE: isolatedDefaultConfigFile,
       GLM_STATUSLINE_CACHE_TTL_MS: '1',
+      COLUMNS: '120',
     },
   });
   assert.strictEqual(status.status, 0, status.stderr);
@@ -212,12 +218,12 @@ async function main() {
         GLM_STATUSLINE_CACHE_FILE: cacheFile,
         GLM_STATUSLINE_CONFIG_FILE: isolatedDefaultConfigFile,
         GLM_STATUSLINE_CACHE_TTL_MS: '60000',
+        COLUMNS: '120',
       },
     });
     assert.strictEqual(apiUsage.status, 0, apiUsage.stderr);
     assert.match(apiUsage.stdout, /^5H .+ 10% @18:30 │ Context .+ 1% │ Session 2K\s*$/);
     assert.doesNotMatch(apiUsage.stdout, /Sess:/);
-    assert.doesNotMatch(apiUsage.stdout, /Day:/);
     assert.doesNotMatch(apiUsage.stdout, /30D:/);
     assert.strictEqual(apiUsage.stdout.trim().split('\n').length, 1);
 
@@ -253,8 +259,6 @@ async function main() {
       configFile,
       JSON.stringify(
         {
-          layout: 'full',
-          barWidth: 4,
           display: ['plan', '5h', 'mcp', 'day', '30d'],
         },
         null,
@@ -273,6 +277,7 @@ async function main() {
         GLM_STATUSLINE_CACHE_FILE: cacheFile,
         GLM_STATUSLINE_CONFIG_FILE: configFile,
         GLM_STATUSLINE_CACHE_TTL_MS: '60000',
+        COLUMNS: '120',
       },
     });
     assert.strictEqual(configuredStatus.status, 0, configuredStatus.stderr);
@@ -307,8 +312,6 @@ async function main() {
       contextConfigFile,
       JSON.stringify(
         {
-          layout: 'compact',
-          barWidth: 8,
           display: ['plan', '5h', 'mcp', 'context', 'model', 'session', 'day', '30d'],
         },
         null,
@@ -348,6 +351,7 @@ async function main() {
         GLM_STATUSLINE_CACHE_FILE: cacheFile,
         GLM_STATUSLINE_CONFIG_FILE: configFile,
         GLM_STATUSLINE_CACHE_TTL_MS: '60000',
+        COLUMNS: '120',
       },
     });
     assert.strictEqual(preview.status, 0, preview.stderr);
@@ -380,34 +384,17 @@ async function main() {
   assert.match(install.stdout, /\/glm-statusline:configure/);
   assert.match(install.stdout, /choose which fields are shown/i);
 
-  const configure = run(
-    process.execPath,
-    [
-      'bin/glm-statusline-install.js',
-      'configure',
-      '--show=plan,5h,mcp,context',
-      '--bar-width=4',
-      '--layout=full',
-    ],
-    {
-      env: {
-        GLM_STATUSLINE_CONFIG_FILE: installConfigFile,
-        GLM_STATUSLINE_CACHE_FILE: path.join(tempDir, 'configure-cache.json'),
-        ANTHROPIC_AUTH_TOKEN: '',
-        ANTHROPIC_BASE_URL: '',
-        GLM_STATUSLINE_PLAN: 'GLM Lite',
-      },
-    }
-  );
-  assert.strictEqual(configure.status, 0, configure.stderr);
-  assert.match(configure.stdout, /GLM StatusLine config written/);
-  assert.match(configure.stdout, /Preview:\nGLM Lite │ 5H/);
-  assert.match(configure.stdout, /MCP/);
-  assert.match(configure.stdout, /Context/);
-  const savedConfig = JSON.parse(fs.readFileSync(installConfigFile, 'utf8'));
-  assert.deepStrictEqual(savedConfig.display, ['plan', '5h', 'mcp', 'context']);
-  assert.strictEqual(savedConfig.barWidth, 4);
-  assert.strictEqual(savedConfig.layout, 'full');
+  const unsupportedConfigureArgs = run(process.execPath, ['bin/glm-statusline-install.js', 'configure', '--show=plan,5h'], {
+    env: {
+      GLM_STATUSLINE_CONFIG_FILE: installConfigFile,
+      GLM_STATUSLINE_CACHE_FILE: path.join(tempDir, 'configure-cache.json'),
+      ANTHROPIC_AUTH_TOKEN: '',
+      ANTHROPIC_BASE_URL: '',
+      GLM_STATUSLINE_PLAN: 'GLM Lite',
+    },
+  });
+  assert.notStrictEqual(unsupportedConfigureArgs.status, 0);
+  assert.match(unsupportedConfigureArgs.stderr, /interactive selector/i);
 
   const interactiveConfigFile = path.join(tempDir, 'interactive-config.json');
   const interactive = run(process.execPath, ['bin/glm-statusline-install.js', 'configure'], {
@@ -439,6 +426,7 @@ async function main() {
       ANTHROPIC_BASE_URL: '',
       GLM_STATUSLINE_CONFIG_FILE: isolatedDefaultConfigFile,
       GLM_STATUSLINE_CACHE_TTL_MS: '1',
+      COLUMNS: '120',
     },
   });
   assert.strictEqual(launcherStatus.status, 0, launcherStatus.stderr);

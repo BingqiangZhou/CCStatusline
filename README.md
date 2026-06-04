@@ -45,7 +45,7 @@
 | 5 | MCP | 传输类型（stdio/http/sse/ws）、配置、插件 MCP | [05-MCP.md](notes/05-MCP.md) |
 | 6 | LSP | 语言服务器集成、代码智能、诊断、导航 | [06-LSP.md](notes/06-LSP.md) |
 | 7 | Output Styles | 回答风格定义、内置风格、force-for-plugin | [07-Output-Styles.md](notes/07-Output-Styles.md) |
-| 8 | Themes | 终端颜色主题、颜色 token、热加载 | [08-Themes.md](notes/08-Themes.md) |
+| 8 | Themes | 终端颜色主题、颜色 token、插件主题加载 | [08-Themes.md](notes/08-Themes.md) |
 | 9 | Monitors | 后台监听进程、输出传递、触发条件 | [09-Monitors.md](notes/09-Monitors.md) |
 | 10 | Bin | 可执行脚本、PATH 注入、薄入口模式 | [10-Bin.md](notes/10-Bin.md) |
 | 11 | 实践案例 | GLM StatusLine 完整案例：需求→选型→设计→实现 | [11-实践案例-GLM-StatusLine.md](notes/11-实践案例-GLM-StatusLine.md) |
@@ -73,7 +73,7 @@
 
 - `5H`：GLM Coding Plan 的 5 小时额度使用率，带可视化进度条和重置时间。
 - `@HH:mm`：优先显示 API 返回的下一次 5H 重置时间；接口没有返回时，显示最近一次成功刷新 quota 的时间。
-- `Context`：当前 Claude Code 会话上下文占用比例（`full` 布局下额外显示上下文窗口大小）。
+- `Context`：当前 Claude Code 会话上下文占用比例。
 - `Session`：当前 transcript 中累计的 token 数。
 
 状态栏显示字段可以配置。支持的全部字段：
@@ -89,7 +89,7 @@
 | `day` | 当天 GLM / Z.ai token 用量 |
 | `30d` | 近 30 天 GLM / Z.ai token 用量 |
 
-默认显示 `5h`、`context`、`session`。支持别名（如 `quota` → `5h`、`ctx` → `context`、`monthly` → `30d`）。
+默认显示 `5h`、`context`、`session`。
 
 ### 2. GLM / Z.ai API 用量读取
 
@@ -166,16 +166,10 @@ Select fields to show. Type a number to toggle it, q to finish.
 4. [x] context
 
 Preview:
-GLM Lite │ 5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% │ Context █████░░░ 68% (200K) │ Session 160K
+GLM Lite │ 5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% │ Context █████░░░ 68% │ Session 160K
 ```
 
-配置支持三种方式：
-- **交互式选择**：无参数运行 `/glm-statusline:configure`，输入数字切换字段，每次切换自动保存并预览。
-- **参数式配置**：`/glm-statusline:configure --show=5h,context,session --layout=compact --bar-width=8`，适合脚本化使用。
-- **环境变量覆盖**：设置 `GLM_STATUSLINE_DISPLAY=5h,context,session` 可不写配置文件直接控制显示。
-
-配置文件中还支持 `layout`（`compact` 或 `full`，full 布局会在 Context 字段后显示上下文窗口大小）和 `barWidth`（进度条宽度，1-20，默认 8）。
-
+配置只有一种主路径：无参数运行 `/glm-statusline:configure`，输入数字切换字段，每次切换都会自动保存并预览。
 真实底部状态栏会在下一次 Claude Code 交互或 refresh interval 后刷新。
 当选择字段较多时，状态栏会根据当前终端宽度（`COLUMNS` 环境变量）做保守估算，并在字段边界自动换行，避免后面的百分比被挤出可见区域。换行计算正确处理了 CJK 字符和 `█░` 块字符的显示宽度。
 
@@ -183,7 +177,7 @@ GLM Lite │ 5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░�
 
 插件内置四个 Claude Code skill：
 
-- `/glm-statusline:install`：启用状态栏，也可以同时传入显示配置参数。
+- `/glm-statusline:install`：启用状态栏。
 - `/glm-statusline:configure`：选择显示字段并打印预览。
 - `/glm-statusline:uninstall`：移除本插件管理的状态栏配置。
 - `/glm-statusline:plan-details`：显示详细套餐和用量信息。
@@ -261,12 +255,6 @@ npm test
 启用后，Claude Code 下一次交互时状态栏就会刷新。
 安装输出会提示你运行 `/glm-statusline:configure`，用交互式选择界面配置状态栏显示哪些内容。
 
-也可以安装时直接选择显示内容：
-
-```text
-/glm-statusline:install --show=plan,5h,mcp,context,session --layout=full --bar-width=8
-```
-
 ### 4. 配置 GLM / Z.ai 环境变量
 
 把 GLM / Z.ai 相关配置放到 Claude Code settings 的 `env` 中，例如 `~/.claude/settings.json`：
@@ -317,12 +305,6 @@ npm test
 运行 /glm-statusline:configure 后，只保留 5h、context、session 三项为选中状态，然后输入 q 结束。
 ```
 
-也保留参数式配置，方便脚本化使用：
-
-```text
-/glm-statusline:configure --show=5h,context,session --layout=compact
-```
-
 ### 6. 查看详细用量
 
 ```text
@@ -364,14 +346,10 @@ claude --plugin-dir .
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | Sonnet 对应的 GLM 模型 | （无） |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | Haiku 对应的 GLM 模型 | （无） |
 | `GLM_STATUSLINE_PLAN` | API 不返回套餐名时的手动兜底 | （无） |
-| `GLM_STATUSLINE_CONFIG_FILE` | 自定义显示配置文件 | `~/.claude/glm-statusline-config.json` |
-| `GLM_STATUSLINE_DISPLAY` | 不写配置文件时，用逗号分隔字段控制显示内容 | （无） |
-| `GLM_STATUSLINE_LAYOUT` | `compact` 或 `full`（full 布局会显示上下文窗口大小） | `compact` |
 | `GLM_STATUSLINE_CONTEXT_WINDOW` | 手动指定上下文窗口大小 | `200000` |
 | `GLM_STATUSLINE_CACHE_TTL_MS` | API 缓存时间（毫秒） | `60000` |
 | `GLM_STATUSLINE_CACHE_FILE` | 自定义缓存文件位置，常用于测试隔离 | `~/.claude/glm-statusline-cache.json` |
 | `GLM_STATUSLINE_TIMEOUT_MS` | API 请求超时时间（毫秒） | `2200` |
-| `GLM_STATUSLINE_BAR_WIDTH` | 进度条宽度（1-20） | `8` |
 | `GLM_STATUSLINE_DEBUG` | 设置为 `1` 时向 stderr 输出调试错误信息 | （无） |
 
 ## 开发过程记录

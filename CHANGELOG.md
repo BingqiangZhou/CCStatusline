@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.4 - 2026-06-04
+
+- Simplified configuration to the no-argument interactive selector and a single `display` config array.
+- Removed parameter-style display configuration, field aliases, boolean display flags, layout selection, and configurable bar width.
+
 ## 1.2.3 - 2026-06-04
 
 - Added automatic wrapping at field boundaries based on a conservative terminal-width estimate.
@@ -15,7 +20,7 @@
 ## 1.2.0 - 2026-06-04
 
 - Simplified the live status line to one row: 5H quota/reset, Context, and Session tokens.
-- Added configurable status line fields through `/glm-statusline:configure`, `GLM_STATUSLINE_DISPLAY`, and `~/.claude/glm-statusline-config.json`.
+- Added configurable status line fields through `/glm-statusline:configure` and `~/.claude/glm-statusline-config.json`.
 - Added `glm-statusline.js --preview` and installer/configurator preview output so users can see selected fields immediately.
 - Added `/glm-statusline:plan-details` for expanded GLM Coding Plan information.
 - Added quota detail extraction for used/total values, reset times, MCP quota, and weekly quota when the API returns it.
