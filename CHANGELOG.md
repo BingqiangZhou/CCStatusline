@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.8 - 2026-06-06
+
+- Changed progress bar characters from partial blocks (▏▎▍▌▋▊▉) to full-width shade characters (░▒▓█), eliminating visible gaps between filled and empty cells.
+- Each bar cell now has 4 shade levels (░ empty → ▒ medium → ▓ dark → █ full), giving 24 total steps (~4.17% per step) with seamless visual appearance.
+
+## 1.2.7 - 2026-06-06
+
+- Changed `renderBar` from `Math.round` to `Math.ceil` so small percentages (like 4%) show at least one visible block instead of appearing empty.
+- Introduced partial block characters for finer granularity (~1.56% per step), later replaced by full-width shades in 1.2.8.
+
 ## 1.2.6 - 2026-06-04
 
 - Extracted display field definitions into `lib/display-fields.js` and formatting utilities into `lib/statusline-format.js`.
