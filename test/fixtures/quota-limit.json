@@ -13,7 +13,8 @@
         "type": "TIME_LIMIT",
         "percentage": 20,
         "currentValue": 3,
-        "usage": 30
+        "usage": 30,
+        "nextResetTime": 1781432804998
       },
       {
         "type": "WEEKLY_LIMIT",

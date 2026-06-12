@@ -5,7 +5,7 @@
  * A single-file Claude Code statusLine script for GLM Coding Plan.
  *
  * Output:
- *   5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% │ Session 160K │ Day 42.8M
+ *   5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% @06-14 │ Session 160K │ Day 42.8M
  *
  * Details:
  *   glm-statusline.js --plan-details
@@ -42,6 +42,7 @@ const {
   formatAge,
   formatLocalDateTime,
   formatResetHHmm,
+  formatResetMMDD,
   formatTimeHHmm,
   formatTokens,
   parseResetTime,
@@ -878,7 +879,7 @@ async function renderPlanDetails() {
   lines.push(
     formatLimitLine('5H', quota.fiveHourLimit || { percent: quota.fiveHourPercent, resetTime: quota.fiveHourResetTime }, { showReset: true })
   );
-  lines.push(formatLimitLine('MCP', quota.mcpLimit || { percent: quota.mcpPercent }));
+  lines.push(formatLimitLine('MCP', quota.mcpLimit || { percent: quota.mcpPercent }, { showReset: true, longReset: true }));
   if (quota.weeklyLimit || quota.weeklyPercent !== null) {
     lines.push(formatLimitLine('Weekly', quota.weeklyLimit || { percent: quota.weeklyPercent }, { showReset: true, longReset: true }));
   }
@@ -932,7 +933,7 @@ async function renderStatusLine(sessionContext = {}) {
   const fields = {
     plan: planName,
     '5h': `5H ${renderBar(fiveHourPercent)} @${fiveHourReset}`,
-    mcp: `MCP ${renderBar(quota.mcpPercent ?? 0)}`,
+    mcp: `MCP ${renderBar(quota.mcpPercent ?? 0)} @${formatResetMMDD(quota.mcpLimit?.resetTime)}`,
     context: `Context ${renderBar(contextPercent)}`,
     model: `Model ${mapClaudeModelToGlm(sessionContext, env)}`,
     effort: `Effort ${effortLevel || '--'}`,

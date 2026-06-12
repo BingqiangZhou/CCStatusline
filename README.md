@@ -74,7 +74,7 @@
 当前状态栏输出类似：
 
 ```text
-5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% │ Session 160K │ Day 42.8M
+5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14 │ Session 160K │ Day 42.8M
 ```
 
 进度条使用渐变字符（`░▒▓█`），每个格子有 4 级灰度，共 24 步（约 4% 一级），视觉上无间隙。
@@ -84,6 +84,7 @@
 - `5H`：GLM Coding Plan 的 5 小时额度使用率，带可视化进度条和重置时间。
 - `@HH:mm`：优先显示 API 返回的下一次 5H 重置时间；接口没有返回时，显示最近一次成功刷新 quota 的时间。
 - `MCP`：MCP/tools 额度使用率，带可视化进度条。
+- `@MM-DD`：MCP/tools 额度窗口的到期日期（月-日，如 `@06-14`）；接口没有返回时显示 `--`。
 - `Session`：当前 transcript 中累计的 token 数。
 - `Day`：当天 GLM / Z.ai token 用量。
 
@@ -93,7 +94,7 @@
 | --- | --- |
 | `plan` | 当前套餐名（如 GLM Lite、GLM Pro） |
 | `5h` | 5 小时额度使用率 + 进度条 + 重置时间 |
-| `mcp` | MCP/tools 额度使用率 + 进度条 |
+| `mcp` | MCP/tools 额度使用率 + 进度条 + 到期日期 |
 | `context` | 上下文占用比例 + 进度条 |
 | `model` | Claude Code 当前模型映射后的 GLM 模型名 |
 | `effort` | 当前推理 effort 等级（`low` / `medium` / `high` / `xhigh` / `max`，来自 Claude Code `effort.level`） |
@@ -147,7 +148,7 @@ glm-statusline.js --plan-details
 GLM Coding Plan
 Plan: GLM Max
 5H: 22% · 2M / 10M · resets 18:30
-MCP: 28% · 28 / 100
+MCP: 28% · 28 / 100 · resets 2026-06-14 18:26
 Weekly: 12% · 120K / 1M · resets 2026-06-08 09:00
 Day: 42.8M tokens
 30D: 979.2M tokens
@@ -181,7 +182,7 @@ Select fields to show. Type a number to toggle it, q to finish.
 7. [x] day tokens
 
 Preview:
-GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% │ Session 160K │ Day 42.8M
+GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14 │ Session 160K │ Day 42.8M
 ```
 
 配置只有一种主路径：无参数运行 `/glm-statusline:configure`，输入数字切换字段，每次切换都会自动保存并预览。

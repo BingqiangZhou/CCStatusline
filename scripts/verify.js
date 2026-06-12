@@ -237,7 +237,7 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
       },
     });
     assert.strictEqual(apiUsage.status, 0, apiUsage.stderr);
-    assert.match(apiUsage.stdout, /^5H .+ 10% @18:30 │ MCP .+ 20% │ Session 2K │ Day 3K\s*$/);
+    assert.match(apiUsage.stdout, /^5H .+ 10% @18:30 │ MCP .+ 20% @06-14 │ Session 2K │ Day 3K\s*$/);
     assert.doesNotMatch(apiUsage.stdout, /Context/);
     assert.doesNotMatch(apiUsage.stdout, /Sess:/);
     assert.doesNotMatch(apiUsage.stdout, /30D:/);
@@ -255,7 +255,7 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
     assert.match(details.stdout, /GLM Coding Plan/);
     assert.match(details.stdout, /Plan: GLM Test/);
     assert.match(details.stdout, /5H: 10% · 2K \/ 20K · resets 18:30/);
-    assert.match(details.stdout, /MCP: 20% · 3 \/ 30/);
+    assert.match(details.stdout, /MCP: 20% · 3 \/ 30 · resets 2026-06-14 18:26/);
     assert.match(details.stdout, /Weekly: 30% · 300K \/ 1M · resets 2026-06-08 09:00/);
     assert.match(details.stdout, /Day: 3K tokens/);
     assert.match(details.stdout, /30D: 5\.98B tokens/);
@@ -297,7 +297,7 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
       },
     });
     assert.strictEqual(configuredStatus.status, 0, configuredStatus.stderr);
-    assert.match(configuredStatus.stdout, /^GLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% │ Day 3K │ 30D 5\.98B\s*$/);
+    assert.match(configuredStatus.stdout, /^GLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% @06-14 │ Day 3K │ 30D 5\.98B\s*$/);
     assert.doesNotMatch(configuredStatus.stdout, /Context/);
     assert.doesNotMatch(configuredStatus.stdout, /Session/);
 
@@ -313,15 +313,15 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
         GLM_STATUSLINE_CACHE_FILE: cacheFile,
         GLM_STATUSLINE_CONFIG_FILE: configFile,
         GLM_STATUSLINE_CACHE_TTL_MS: '60000',
-        COLUMNS: '46',
+        COLUMNS: '52',
       },
     });
     assert.strictEqual(wrappedStatus.status, 0, wrappedStatus.stderr);
     const wrappedLines = wrappedStatus.stdout.trim().split('\n');
     assert.strictEqual(wrappedLines.length, 2);
     assert.match(wrappedLines[0], /^GLM Test │ 5H .+ 10% @18:30$/);
-    assert.match(wrappedLines[1], /^MCP .+ 20% │ Day 3K │ 30D 5\.98B$/);
-    assert.ok(wrappedLines.every((line) => line.length <= 46), wrappedStatus.stdout);
+    assert.match(wrappedLines[1], /^MCP .+ 20% @06-14 │ Day 3K │ 30D 5\.98B$/);
+    assert.ok(wrappedLines.every((line) => line.length <= 52), wrappedStatus.stdout);
 
     const contextConfigFile = path.join(tempDir, 'context-wrap-config.json');
     fs.writeFileSync(
@@ -371,7 +371,7 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
       },
     });
     assert.strictEqual(preview.status, 0, preview.stderr);
-    assert.match(preview.stdout, /^Preview:\nGLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% │ Day 3K │ 30D 5\.98B\s*$/);
+    assert.match(preview.stdout, /^Preview:\nGLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% @06-14 │ Day 3K │ 30D 5\.98B\s*$/);
   } finally {
     await close(server);
   }
@@ -494,7 +494,7 @@ function verifyInstallerWorkflow({ isolatedDefaultConfigFile, tempDir }) {
     },
   });
   assert.strictEqual(launcherStatus.status, 0, launcherStatus.stderr);
-  assert.match(launcherStatus.stdout, /^5H .+ @--:-- │ MCP .+ 0% │ Session 0 │ Day 0\s*$/);
+  assert.match(launcherStatus.stdout, /^5H .+ @--:-- │ MCP .+ 0% @-- │ Session 0 │ Day 0\s*$/);
   assert.doesNotMatch(launcherStatus.stdout, /Context/);
 
   const uninstall = run(process.execPath, ['bin/glm-statusline-install.js', 'uninstall'], {
