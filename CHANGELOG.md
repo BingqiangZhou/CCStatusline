@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.10 - 2026-06-13
+
+- Added the MCP/tools quota expiry date to the MCP status line field, shown as a compact `@MM-DD` (e.g. `@06-14`) next to the MCP bar. The GLM / Z.ai API already returns the window expiry; it is now surfaced in the status line (`@--` when unavailable), and `--plan-details` shows the full date and time for the MCP window.
+
 ## 1.2.9 - 2026-06-12
 
 - Added an optional `effort` field showing the current reasoning effort level (`low` / `medium` / `high` / `xhigh` / `max`), read from Claude Code's `effort.level` statusline input (Claude Code v2.1.119+). Toggle it via `/glm-statusline:configure`; off by default.
