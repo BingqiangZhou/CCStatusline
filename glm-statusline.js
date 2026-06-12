@@ -55,6 +55,10 @@ const DEFAULT_CONFIG_FILE = path.join(HOME, '.claude', 'glm-statusline-config.js
 const DEFAULT_CONTEXT_WINDOW = 200000;
 const API_TIMEOUT_MS = Number(process.env.GLM_STATUSLINE_TIMEOUT_MS || 2200);
 const CACHE_TTL_MS = Number(process.env.GLM_STATUSLINE_CACHE_TTL_MS || 60_000);
+// How long a per-session "last known" context percentage is held in the cache.
+const CONTEXT_CACHE_TTL_MS = Number(
+  process.env.GLM_STATUSLINE_CONTEXT_CACHE_TTL_MS || 24 * 60 * 60 * 1000
+);
 
 const PLAN_KEYS = [
   'planName',
@@ -214,6 +218,16 @@ function saveCache(cache) {
 
 function isFresh(entry, ttl = CACHE_TTL_MS) {
   return entry && typeof entry.ts === 'number' && Date.now() - entry.ts < ttl;
+}
+
+// Drop stale per-session "last known" context entries so the cache file can't grow unbounded.
+function pruneContextCache(cache) {
+  const now = Date.now();
+  for (const key of Object.keys(cache)) {
+    if (key.startsWith('context:') && now - (cache[key]?.ts || 0) > CONTEXT_CACHE_TTL_MS) {
+      delete cache[key];
+    }
+  }
 }
 
 function recursiveFindStringByKeys(obj, keys, depth = 0) {
@@ -518,6 +532,20 @@ function getClaudeModelRaw(sessionContext) {
   );
 }
 
+// Read the current reasoning effort level. Primary source is `effort.level` in the stdin JSON
+// (Claude Code v2.1.119+); env var is a fallback for when it is absent or on older versions.
+function getEffortLevel(sessionContext, env) {
+  const effort = sessionContext?.effort;
+  const level =
+    (effort && typeof effort === 'object' ? effort.level : '') ||
+    (typeof effort === 'string' ? effort : '') ||
+    sessionContext?.effortLevel ||
+    sessionContext?.effort_level ||
+    env?.CLAUDE_CODE_EFFORT_LEVEL ||
+    '';
+  return String(level || '').trim().toLowerCase();
+}
+
 function mapClaudeModelToGlm(sessionContext, env) {
   const raw = String(getClaudeModelRaw(sessionContext) || '').trim();
   const upper = raw.toUpperCase();
@@ -580,15 +608,44 @@ function getContextInfo(sessionContext, sessionTokens, env) {
   if (!Number.isFinite(percent) && Number.isFinite(used) && Number.isFinite(max) && max > 0) {
     percent = (used / max) * 100;
   }
-  if (!Number.isFinite(percent) && Number.isFinite(sessionTokens) && Number.isFinite(max) && max > 0) {
+  if (!Number.isFinite(percent) && Number.isFinite(sessionTokens) && sessionTokens > 0 && Number.isFinite(max) && max > 0) {
     // Fallback only. Session tokens are not identical to live context tokens, but this is better than blank.
+    // Require sessionTokens > 0: an empty transcript means "no data to estimate", not "0% used".
     percent = (sessionTokens / max) * 100;
   }
 
+  // `percent: null` means "unknown" (e.g. used_percentage is null early in a session or
+  // right after /compact). The caller decides how to render/hold it — never coerce to 0 here.
   return {
-    percent: clampPercent(Number.isFinite(percent) ? percent : 0),
+    percent: Number.isFinite(percent) ? clampPercent(percent) : null,
     max: Number.isFinite(max) && max > 0 ? max : DEFAULT_CONTEXT_WINDOW,
   };
+}
+
+// Resolve the context percentage to display, holding the last known value for the session
+// when Claude Code reports `null` (early session / after /compact) so the bar never flashes
+// to 0%. Only touches the cache when the context field is actually displayed.
+function resolveContextPercent(sessionContext, sessionTokens, env, config) {
+  const info = getContextInfo(sessionContext, sessionTokens, env);
+  if (!config?.display?.includes('context')) return info.percent;
+
+  const sessionId = String(sessionContext?.session_id || sessionContext?.sessionId || '');
+  if (!sessionId) return info.percent;
+
+  const cache = loadCache();
+  const key = `context:${sessionId}`;
+  if (info.percent == null) {
+    // Unknown this tick — reuse the last known value so the bar holds steady.
+    const entry = cache[key];
+    if (entry && typeof entry.percent === 'number') return entry.percent;
+    return null;
+  }
+
+  // Known this tick — remember it for future null ticks.
+  cache[key] = { percent: info.percent, ts: Date.now() };
+  pruneContextCache(cache);
+  saveCache(cache);
+  return info.percent;
 }
 
 function tokenTotalFromUsage(usage) {
@@ -860,7 +917,7 @@ async function renderStatusLine(sessionContext = {}) {
   const sessionTokens = readJsonlTokenStats(transcriptPath);
 
   const quota = await fetchQuota(env);
-  const contextInfo = getContextInfo(sessionContext, sessionTokens, env);
+  const contextPercent = resolveContextPercent(sessionContext, sessionTokens, env, config);
   const fiveHourPercent = quota.fiveHourPercent ?? 0;
   const fiveHourReset = formatResetHHmm(quota.fiveHourUpdateTime || quota.fiveHourResetTime);
   const needsDay = config.display.includes('day');
@@ -871,12 +928,14 @@ async function renderStatusLine(sessionContext = {}) {
   ]);
 
   const planName = quota.planName || normalizePlanName(env.GLM_STATUSLINE_PLAN) || 'GLM';
+  const effortLevel = getEffortLevel(sessionContext, env);
   const fields = {
     plan: planName,
     '5h': `5H ${renderBar(fiveHourPercent)} @${fiveHourReset}`,
     mcp: `MCP ${renderBar(quota.mcpPercent ?? 0)}`,
-    context: `Context ${renderBar(contextInfo.percent)}`,
+    context: `Context ${renderBar(contextPercent)}`,
     model: `Model ${mapClaudeModelToGlm(sessionContext, env)}`,
+    effort: `Effort ${effortLevel || '--'}`,
     session: `Session ${formatTokens(sessionTokens)}`,
     day: `Day ${formatTokens(dayTokens ?? 0)}`,
     '30d': `30D ${formatTokens(monthTokens ?? 0)}`,

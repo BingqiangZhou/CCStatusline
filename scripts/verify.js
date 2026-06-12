@@ -58,6 +58,19 @@ function listen(server) {
   });
 }
 
+// Shared env for statusline runs that don't need the live GLM API (empty token/url → fetchQuota
+// returns its fallback immediately). Each call points at its own config/cache files.
+function baseEnv(configFile, cacheFile) {
+  return {
+    ANTHROPIC_AUTH_TOKEN: '',
+    ANTHROPIC_BASE_URL: '',
+    GLM_STATUSLINE_CONFIG_FILE: configFile,
+    GLM_STATUSLINE_CACHE_FILE: cacheFile,
+    GLM_STATUSLINE_CACHE_TTL_MS: '1',
+    COLUMNS: '120',
+  };
+}
+
 function close(server) {
   return new Promise((resolve, reject) => {
     server.close((err) => (err ? reject(err) : resolve()));
@@ -153,6 +166,7 @@ function verifyDefaultStatusLine(isolatedDefaultConfigFile) {
   assert.match(status.stdout, /Session 0/);
   assert.match(status.stdout, /Day 0/);
   assert.doesNotMatch(status.stdout, /Context/);
+  assert.doesNotMatch(status.stdout, /Effort/);
   assert.doesNotMatch(status.stdout, /Sess:/);
   assert.doesNotMatch(status.stdout, /Day:/);
   assert.doesNotMatch(status.stdout, /30D:/);
@@ -495,6 +509,78 @@ function verifyInstallerWorkflow({ isolatedDefaultConfigFile, tempDir }) {
   assert.ok(!fs.existsSync(launcherFile), 'uninstall should remove the stable launcher file');
 }
 
+async function verifyEffortAndContextFix({ tempDir }) {
+  // Effort segment: level present renders it (Claude Code v2.1.119+ sends effort.level).
+  const effortConfig = path.join(tempDir, 'effort-config.json');
+  fs.writeFileSync(effortConfig, JSON.stringify({ display: ['model', 'effort'] }, null, 2));
+  const effortStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ model: { display_name: 'Sonnet' }, effort: { level: 'high' } }),
+    env: baseEnv(effortConfig, path.join(tempDir, 'effort-cache.json')),
+  });
+  assert.strictEqual(effortStatus.status, 0, effortStatus.stderr);
+  assert.match(effortStatus.stdout, /Effort high/);
+
+  // Effort absent (model doesn't support effort) -> honest placeholder, not blank.
+  const effortUnknownConfig = path.join(tempDir, 'effort-unknown-config.json');
+  fs.writeFileSync(effortUnknownConfig, JSON.stringify({ display: ['effort'] }, null, 2));
+  const effortUnknown = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ model: { display_name: 'Sonnet' } }),
+    env: baseEnv(effortUnknownConfig, path.join(tempDir, 'effort-unknown-cache.json')),
+  });
+  assert.strictEqual(effortUnknown.status, 0, effortUnknown.stderr);
+  assert.match(effortUnknown.stdout, /Effort --/);
+
+  const sessionId = 'ctx-fix-session';
+  const ctxConfig = path.join(tempDir, 'context-fix-config.json');
+  fs.writeFileSync(ctxConfig, JSON.stringify({ display: ['context'] }, null, 2));
+
+  // Context null (early session / after /compact) -> --%, never 0%, with a fresh cache.
+  const ctxFreshCache = path.join(tempDir, 'context-fresh-cache.json');
+  fs.writeFileSync(ctxFreshCache, '{}');
+  const ctxNullStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({
+      context_window: { used_percentage: null, context_window_size: 200000 },
+      session_id: sessionId,
+    }),
+    env: baseEnv(ctxConfig, ctxFreshCache),
+  });
+  assert.strictEqual(ctxNullStatus.status, 0, ctxNullStatus.stderr);
+  assert.match(ctxNullStatus.stdout, /Context .+ --%/);
+  assert.doesNotMatch(ctxNullStatus.stdout, /Context .+ 0%/);
+
+  // Context holds the last known value across a null tick (no flicker to 0%).
+  const ctxHoldCache = path.join(tempDir, 'context-hold-cache.json');
+  fs.writeFileSync(
+    ctxHoldCache,
+    JSON.stringify({ [`context:${sessionId}`]: { percent: 37, ts: Date.now() } }, null, 2)
+  );
+  const ctxHoldStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({
+      context_window: { used_percentage: null, context_window_size: 200000 },
+      session_id: sessionId,
+    }),
+    env: baseEnv(ctxConfig, ctxHoldCache),
+  });
+  assert.strictEqual(ctxHoldStatus.status, 0, ctxHoldStatus.stderr);
+  assert.match(ctxHoldStatus.stdout, /Context .+ 37%/);
+  assert.doesNotMatch(ctxHoldStatus.stdout, /Context .+ --%/);
+
+  // Context caches a real value so a subsequent null tick can hold it.
+  const ctxWriteCache = path.join(tempDir, 'context-write-cache.json');
+  fs.writeFileSync(ctxWriteCache, '{}');
+  const ctxRealStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({
+      context_window: { used_percentage: 42, context_window_size: 200000 },
+      session_id: sessionId,
+    }),
+    env: baseEnv(ctxConfig, ctxWriteCache),
+  });
+  assert.strictEqual(ctxRealStatus.status, 0, ctxRealStatus.stderr);
+  assert.match(ctxRealStatus.stdout, /Context .+ 42%/);
+  const writtenCache = JSON.parse(fs.readFileSync(ctxWriteCache, 'utf8'));
+  assert.strictEqual(writtenCache[`context:${sessionId}`]?.percent, 42);
+}
+
 async function main() {
   verifyProjectMetadata();
 
@@ -511,6 +597,7 @@ async function main() {
   await verifyApiBackedStatusLine(context);
   await verifyDebugLogging(context);
   verifyInstallerWorkflow(context);
+  await verifyEffortAndContextFix(context);
   console.log('All plugin verification checks passed.');
 }
 

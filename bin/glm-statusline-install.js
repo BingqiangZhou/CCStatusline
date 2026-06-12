@@ -148,6 +148,7 @@ function renderPreview() {
     cwd: PLUGIN_ROOT,
     input: JSON.stringify({
       model: { display_name: 'Sonnet' },
+      effort: { level: 'high' },
       context_window: { used_percentage: 0, context_window_size: 200000 },
       transcript_path: '',
     }),
