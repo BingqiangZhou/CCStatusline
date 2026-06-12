@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.9 - 2026-06-12
+
+- Added an optional `effort` field showing the current reasoning effort level (`low` / `medium` / `high` / `xhigh` / `max`), read from Claude Code's `effort.level` statusline input (Claude Code v2.1.119+). Toggle it via `/glm-statusline:configure`; off by default.
+- Fixed the context bar briefly flashing to `0%` early in a session and after `/compact`. Claude Code reports `used_percentage` as `null` at those moments; the bar now holds the last known value for the session (cached by `session_id`) so it stays steady, and shows `--%` only before the first real value instead of a misleading `0%`.
+
 ## 1.2.8 - 2026-06-06
 
 - Changed progress bar characters from partial blocks (▏▎▍▌▋▊▉) to full-width shade characters (░▒▓█), eliminating visible gaps between filled and empty cells.

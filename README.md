@@ -96,6 +96,7 @@
 | `mcp` | MCP/tools 额度使用率 + 进度条 |
 | `context` | 上下文占用比例 + 进度条 |
 | `model` | Claude Code 当前模型映射后的 GLM 模型名 |
+| `effort` | 当前推理 effort 等级（`low` / `medium` / `high` / `xhigh` / `max`，来自 Claude Code `effort.level`） |
 | `session` | 当前会话累计 token 数 |
 | `day` | 当天 GLM / Z.ai token 用量 |
 | `30d` | 近 30 天 GLM / Z.ai token 用量 |
@@ -321,6 +322,7 @@ pwd
 - `mcp`：MCP/tool 额度。
 - `context`：上下文占用。
 - `model`：Claude Code 当前模型映射后的 GLM 模型名。
+- `effort`：当前推理 effort 等级（Claude Code `effort.level`，模型不支持时显示 `--`）。
 - `session`：当前会话 token。
 - `day`：当天 token。
 - `30d`：近 30 天 token。
@@ -417,7 +419,7 @@ Claude Code 官方文档：
 项目里参考和使用到的运行时能力：
 
 - Node.js 标准库：`fs`、`path`、`os`、`http`、`https`、`url`、`child_process`、`readline`、`assert`。
-- Claude Code `statusLine`：通过 stdin 接收当前会话 JSON（包含 `model`、`context_window`、`transcript_path`、`workspace` 等字段），通过 stdout 输出状态栏文本。
+- Claude Code `statusLine`：通过 stdin 接收当前会话 JSON（包含 `model`、`context_window`、`effort`、`transcript_path`、`workspace` 等字段），通过 stdout 输出状态栏文本。其中 `effort.level` 需要 Claude Code v2.1.119+，`context_window.used_percentage` 在会话开始或 `/compact` 后可能为 `null`（此时状态栏会沿用该会话上一次的已知值，避免闪成 0%）。
 - Claude Code plugin：用 `.claude-plugin/plugin.json` 描述插件元信息。
 - Claude Code local marketplace：用 `.claude-plugin/marketplace.json` 让本地目录可以被 `/plugin marketplace add` 添加。
 - Claude Code skill：用 `skills/<name>/SKILL.md` 暴露 `/glm-statusline:*` 命令。
