@@ -1,0 +1,70 @@
+name: Release
+
+# When a version tag (vX.Y.Z) is pushed, publish a GitHub Release whose body is
+# the matching entry pulled from CHANGELOG.md. The tag itself already makes the
+# version installable via `claude plugin update`; this Release just surfaces the
+# changelog on the GitHub UI.
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "number=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog entry
+        id: changelog
+        run: |
+          version="${{ steps.version.outputs.number }}"
+          # Grab the body of the "## <version>" section from CHANGELOG.md:
+          # everything after its heading up to the next "## " heading, with
+          # leading/trailing blank lines trimmed. Pure awk so it's portable.
+          entry=$(awk -v v="$version" '
+            /^## / {
+              if (in_section) { in_section = 0 }
+              if ($2 == v) { in_section = 1 }
+              next
+            }
+            in_section {
+              if (!started && $0 ~ /^[[:space:]]*$/) next
+              started = 1
+              lines[++n] = $0
+            }
+            END {
+              while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--
+              for (i = 1; i <= n; i++) print lines[i]
+            }
+          ' CHANGELOG.md)
+
+          if [ -z "$(printf '%s' "$entry" | tr -d '[:space:]')" ]; then
+            entry="No CHANGELOG.md entry found for version ${version}."
+          fi
+
+          # Multi-line value via the heredoc delimiter syntax.
+          {
+            echo "body<<CHANGELOG_EOF"
+            printf '%s\n' "$entry"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: GLM StatusLine ${{ steps.version.outputs.number }}
+          body: ${{ steps.changelog.outputs.body }}
+          draft: false
+          prerelease: false
