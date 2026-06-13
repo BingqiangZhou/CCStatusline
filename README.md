@@ -87,6 +87,30 @@ Context █▒░░░░░░ 12% │ Session 160K │ Day 42.8M │ 30D 5.98
 GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14
 ```
 
+#### 字段数据来源（每项怎么来的）
+
+状态栏的每个字段来自三种数据源之一：GLM / Z.ai 监控 API、Claude Code 经 stdin 传入的会话 JSON，或本地从 transcript 计算。
+
+**来自 GLM / Z.ai 监控 API**（`ANTHROPIC_BASE_URL` 推导出的 monitor 根地址，`ANTHROPIC_AUTH_TOKEN` 鉴权）：
+
+- `plan`：套餐名，取自 `/api/monitor/usage/quota/limit`。接口没返回时用环境变量 `GLM_STATUSLINE_PLAN` 兜底，仍没有则显示 `GLM`。
+- `5h`：5 小时额度使用率与重置时间，从 quota/limit 接口解析。
+- `mcp`：MCP/tools 额度使用率与窗口到期日期（`@MM-DD`），从 quota/limit 接口解析。
+- `day`、`30d`：当天 / 近 30 天 token 用量，取自 `/api/monitor/usage/model-usage`。**只有选了 `day` 或 `30d` 才会请求这个接口**（成本控制）；结果按 60 秒（`GLM_STATUSLINE_CACHE_TTL_MS`）缓存。
+
+  由于 monitor API 没有固定 schema，`5h`/`mcp`/`plan` 靠「兼容式解析」拿到：脚本递归遍历响应、按多种候选字段名匹配，并把每个 limit 对象按关键词归类成 5H / MCP / weekly。接口改字段名时通常只需扩展候选名单。
+
+**来自 Claude Code 会话 JSON**（statusLine 经 stdin 收到的当前会话信息）：
+
+- `context`：`context_window.used_percentage`。会话刚开始或 `/compact` 后该值可能为 `null`，此时沿用该会话上一次的已知值（按 `session_id` 缓存），避免进度条闪成 0%；首次仍无值时显示 `--%`。`context_window_size` 没给时用 `GLM_STATUSLINE_CONTEXT_WINDOW`（默认 `200000`）。
+- `model`：按 Claude Code 当前模型名（Opus / Sonnet / Haiku）映射到环境变量 `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL`（`mapClaudeModelToGlm`）。
+- `effort`：推理 effort 等级，直接读 `effort.level`（需 Claude Code v2.1.119+）；模型不支持或缺失时显示 `--`。
+
+**本地从 transcript 计算**（不请求任何远端接口）：
+
+- `session`：累加 transcript 文件（会话 JSON 里的 `transcript_path`，JSONL）中每条 `usage` 的 token 数。
+- `speed`：当前速度 = 输出 token 增量 ÷ API 耗时增量（用 `cost.total_api_duration_ms` 的增量做分母——真实 API 时间，渲染之间的空闲不会被算进去，不会虚高）；平均速度 = 会话累计输出 token ÷ 累计 API 耗时。按 `session_id` 缓存，空闲时保持上次读数（不归零，首次为 `--`）。
+
 ### 2. GLM / Z.ai API 用量读取
 
 脚本会根据 Claude Code settings 里的环境变量读取 GLM / Z.ai API：
@@ -458,7 +482,8 @@ CCStatusline/
 ├── test/fixtures/                   # GLM / Z.ai monitor API 样例响应
 ├── glm-statusline.js                # 状态栏核心编排脚本
 ├── package.json
-├── CHANGELOG.md
+├── CHANGELOG.md                      # 英文更新日志
+├── CHANGELOG.zh.md                   # 中文更新日志
 └── README.md
 ```
 
