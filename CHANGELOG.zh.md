@@ -2,6 +2,10 @@
 
 > 中文版，与 [CHANGELOG.md](CHANGELOG.md)（英文）一一对应。发版时两个文件需同步更新；CI 的 Release 正文目前取自英文 `CHANGELOG.md`。
 
+## 1.2.18 - 2026-06-13
+
+- 默认布局从 `single` 改为 `grouped`：全新配置（不写 `layout` 键）现在直接渲染成分类多行（model/effort/speed · context/session/day/30d · plan/5h/mcp）。设 `"layout": "single"` 可切回单行布局。单行布局的其它行为不变。
+
 ## 1.2.17 - 2026-06-13
 
 - 调整了分组布局的行序：`model` / `effort` / `speed` 现在是第 1 行，`context` / `session` / `day` / `30d` 居中，`plan` / `5h` / `mcp` 是最后一行。

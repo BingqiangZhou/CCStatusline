@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.18 - 2026-06-13
+
+- Changed the default status line layout from `single` to `grouped`: a fresh config (no `layout` key) now renders the category rows (model/effort/speed · context/session/day/30d · plan/5h/mcp). Set `"layout": "single"` to opt back into the one-line layout. Single-line behavior is otherwise unchanged.
+
 ## 1.2.17 - 2026-06-13
 
 - Reordered the `grouped` layout rows: `model` / `effort` / `speed` is now the first row, `context` / `session` / `day` / `30d` stays in the middle, and `plan` / `5h` / `mcp` is the last row.
