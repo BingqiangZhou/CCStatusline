@@ -163,12 +163,18 @@ function renderPreview() {
 
 function printInteractiveState(config) {
   const selected = new Set(config.display);
+  const isGrouped = config.layout === 'grouped';
   console.log('');
   console.log('Select fields to show. Type a number to toggle it, q to finish.');
   FIELD_ORDER.forEach((field, index) => {
     console.log(`${index + 1}. [${selected.has(field) ? 'x' : ' '}] ${FIELD_LABELS[field]}`);
   });
-  console.log(`Layout: ${config.layout} — type 'l' to switch single/grouped.`);
+  console.log('');
+  console.log(`Layout — press 'l' to switch to ${isGrouped ? 'single' : 'grouped'}:`);
+  console.log(`  [${isGrouped ? ' ' : 'x'}] single   all fields on one line (wraps to terminal width)`);
+  console.log(
+    `  [${isGrouped ? 'x' : ' '}] grouped  split into 3 rows: plan, 5h, mcp  /  context, session, day, 30d  /  model, effort, speed`
+  );
   console.log(renderPreview());
 }
 
@@ -237,7 +243,7 @@ async function interactiveConfigure() {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: 'Choose field number, or q to finish: ',
+    prompt: 'Choose field number, l = layout, q to finish: ',
   });
   rl.prompt();
   for await (const line of rl) {

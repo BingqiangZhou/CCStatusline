@@ -213,7 +213,10 @@ Select fields to show. Type a number to toggle it, q to finish.
 8. [ ] output speed
 9. [x] day tokens
 10. [ ] 30d tokens
-Layout: single — type 'l' to switch single/grouped.
+
+Layout — press 'l' to switch to grouped:
+  [x] single   all fields on one line (wraps to terminal width)
+  [ ] grouped  split into 3 rows: plan, 5h, mcp  /  context, session, day, 30d  /  model, effort, speed
 
 Preview:
 GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14 │ Session 160K │ Day 42.8M
