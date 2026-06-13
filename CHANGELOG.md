@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.13 - 2026-06-13
+
+- Upgraded the optional `speed` field to show both current and session-average output throughput on its own dedicated line: `Speed <current> t/s · Avg <average> t/s`. Average is cumulative output tokens ÷ cumulative API time. The current value no longer drops to `0` when idle — it holds the last measured speed (`--` only before the first measurement). Also fixed `Avg 0 t/s` appearing on sessions with API time but no output tokens yet.
+
 ## 1.2.12 - 2026-06-13
 
 - Added an optional `speed` field showing the current output throughput in tokens/sec, derived from the transcript's output-token growth over the `cost.total_api_duration_ms` growth (real API time, so idle between renders can't inflate the number), with per-session state cached by `session_id`. The first reading shows `--`, the value holds while idle, and it decays to `0` after 30s of no new output. Falls back to the transcript-timestamp span, then wall-clock, when `cost.total_api_duration_ms` is unavailable. Toggle it via `/glm-statusline:configure`; off by default.
