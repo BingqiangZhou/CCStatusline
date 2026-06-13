@@ -170,7 +170,8 @@ function verifyDefaultStatusLine(isolatedDefaultConfigFile) {
   assert.doesNotMatch(status.stdout, /Sess:/);
   assert.doesNotMatch(status.stdout, /Day:/);
   assert.doesNotMatch(status.stdout, /30D:/);
-  assert.strictEqual(status.stdout.trim().split('\n').length, 1);
+  // Default layout is grouped: the default fields (5h, mcp, session, day) span two rows.
+  assert.strictEqual(status.stdout.trim().split('\n').length, 2);
 }
 
 function writeTranscriptFixture(transcriptFile) {
@@ -237,11 +238,14 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
       },
     });
     assert.strictEqual(apiUsage.status, 0, apiUsage.stderr);
-    assert.match(apiUsage.stdout, /^5H .+ 10% @18:30 │ MCP .+ 20% @06-14 │ Session 2K │ Day 3K\s*$/);
+    // Default layout is grouped: Session/Day on the conversation row, 5H/MCP on the quota row.
+    const apiLines = apiUsage.stdout.trim().split('\n');
+    assert.strictEqual(apiLines.length, 2);
+    assert.match(apiLines[0], /^Session 2K │ Day 3K$/);
+    assert.match(apiLines[1], /^5H .+ 10% @18:30 │ MCP .+ 20% @06-14$/);
     assert.doesNotMatch(apiUsage.stdout, /Context/);
     assert.doesNotMatch(apiUsage.stdout, /Sess:/);
     assert.doesNotMatch(apiUsage.stdout, /30D:/);
-    assert.strictEqual(apiUsage.stdout.trim().split('\n').length, 1);
 
     const details = await runAsync(process.execPath, ['bin/glm-statusline.js', '--plan-details'], {
       env: {
@@ -276,6 +280,7 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
       JSON.stringify(
         {
           display: ['plan', '5h', 'mcp', 'day', '30d'],
+          layout: 'single',
         },
         null,
         2
@@ -329,6 +334,7 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
       JSON.stringify(
         {
           display: ['plan', '5h', 'mcp', 'context', 'model', 'session', 'day', '30d'],
+          layout: 'single',
         },
         null,
         2
@@ -494,7 +500,11 @@ function verifyInstallerWorkflow({ isolatedDefaultConfigFile, tempDir }) {
     },
   });
   assert.strictEqual(launcherStatus.status, 0, launcherStatus.stderr);
-  assert.match(launcherStatus.stdout, /^5H .+ @--:-- │ MCP .+ 0% @-- │ Session 0 │ Day 0\s*$/);
+  // Default layout is grouped: Session/Day on row 2, 5H/MCP on row 3.
+  const launcherLines = launcherStatus.stdout.trim().split('\n');
+  assert.strictEqual(launcherLines.length, 2);
+  assert.match(launcherLines[0], /^Session 0 │ Day 0$/);
+  assert.match(launcherLines[1], /^5H .+ @--:-- │ MCP .+ 0% @--$/);
   assert.doesNotMatch(launcherStatus.stdout, /Context/);
 
   const uninstall = run(process.execPath, ['bin/glm-statusline-install.js', 'uninstall'], {
@@ -698,7 +708,7 @@ async function verifyTokenOutputSpeed({ tempDir }) {
 
   // 5. Speed shares the status line with another field: speed sits on its own trailing line.
   const mixedConfig = path.join(tempDir, 'speed-mixed-config.json');
-  fs.writeFileSync(mixedConfig, JSON.stringify({ display: ['session', 'speed'] }, null, 2));
+  fs.writeFileSync(mixedConfig, JSON.stringify({ display: ['session', 'speed'], layout: 'single' }, null, 2));
   const mixedCache = path.join(tempDir, 'speed-mixed-cache.json');
   fs.writeFileSync(mixedCache, '{}');
   const mixedTranscript = path.join(tempDir, 'speed-mixed-transcript.jsonl');

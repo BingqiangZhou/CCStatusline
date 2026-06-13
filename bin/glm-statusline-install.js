@@ -73,7 +73,7 @@ function baseConfigFromFile() {
   const display = normalizeDisplayList(previous.display);
   return {
     display: display.length ? display : [...DEFAULT_DISPLAY],
-    layout: previous.layout === 'grouped' ? 'grouped' : 'single',
+    layout: previous.layout === 'single' ? 'single' : 'grouped',
   };
 }
 

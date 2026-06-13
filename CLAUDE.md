@@ -54,8 +54,8 @@ The flow for every status-line render is `renderStatusLine(sessionContext)`:
 ## Layouts (single vs grouped)
 
 The status line has two layouts, chosen by `config.layout` (parsed in `readStatusConfig`, `glm-statusline.js`):
-- `single` (default, also when the key is absent or any other value): all selected fields on one line, auto-wrapping at terminal width. `speed`, if shown, is filtered out of the main segments and appended as its own trailing line (a hardcoded special-case in `renderStatusLine`, not a normal segment).
-- `grouped` (opt-in, `layout: "grouped"`): fields are partitioned into fixed category rows, each rendered on its own line through `wrapSegments` (a wide row can still wrap within itself); empty rows are skipped. In this mode `speed` is a normal segment in its row (no trailing line).
+- `grouped` (default, also when the key is absent or any other value): fields are partitioned into fixed category rows, each rendered on its own line through `wrapSegments` (a wide row can still wrap within itself); empty rows are skipped. In this mode `speed` is a normal segment in its row (no trailing line).
+- `single` (opt-out, `layout: "single"`): all selected fields on one line, auto-wrapping at terminal width. `speed`, if shown, is filtered out of the main segments and appended as its own trailing line (a hardcoded special-case in `renderStatusLine`, not a normal segment).
 
 The row assignment is `FIELD_GROUPS` in `lib/display-fields.js` (group order = on-screen line order; within a row, `DISPLAY_FIELDS` canonical order applies). `groupDisplay(display)` does the partition. The grouped branch sits at the top of the `renderStatusLine` tail, before the single-line path. Current rows: row 1 `model`/`effort`/`speed`, row 2 `context`/`session`/`day`/`30d`, row 3 `plan`/`5h`/`mcp`.
 

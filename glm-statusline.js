@@ -117,9 +117,10 @@ function readStatusConfig(env = process.env) {
   let display = fromFile.length ? fromFile : [...DEFAULT_DISPLAY];
   if (!display.length) display = [...DEFAULT_DISPLAY];
   const maxWidth = readMaxWidth(env);
-  // Opt-in grouped layout: fields are split into quota / session / model lines.
-  // Anything other than the literal 'grouped' keeps the default single-line behaviour.
-  const layout = fileConfig.layout === 'grouped' ? 'grouped' : 'single';
+  // Grouped is the default layout: fields are split into model / session / quota rows.
+  // An explicit 'single' opts back into the single-line layout; anything else (including
+  // the key being absent) stays grouped.
+  const layout = fileConfig.layout === 'single' ? 'single' : 'grouped';
 
   return {
     configPath,
@@ -1103,9 +1104,9 @@ async function renderStatusLine(sessionContext = {}) {
     speed: `Speed ${formatSpeed(speedStats.current)} t/s · Avg ${formatSpeed(speedStats.average)} t/s`,
   };
 
-  // Grouped layout: render each category (quota / session / model) on its own line, keeping
-  // DISPLAY_FIELDS canonical order within a group and letting each line still wrap to maxWidth.
-  // Empty groups (no selected field) are skipped.
+  // Grouped layout (the default): render each category (model / session / quota) on its own
+  // line, keeping DISPLAY_FIELDS canonical order within a group and letting each line still
+  // wrap to maxWidth. Empty groups (no selected field) are skipped.
   if (config.layout === 'grouped') {
     const groupLines = [];
     for (const keys of groupDisplay(config.display)) {
