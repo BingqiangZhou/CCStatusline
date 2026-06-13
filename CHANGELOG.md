@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.15 - 2026-06-13
+
+- Changed the `grouped` layout's field-to-row assignment: row 1 is now `plan` / `5h` / `mcp`; row 2 is `context` / `session` / `day` / `30d`; row 3 is `model` / `effort` / `speed`. (Previously row 1 held all quota fields, row 2 the conversation fields, and row 3 only `model`.) The single-line default layout is unchanged.
+
 ## 1.2.14 - 2026-06-13
 
 - Added an opt-in `grouped` layout that splits the status line into category rows: quota (`plan`, `5h`, `mcp`, `day`, `30d`), current conversation (`context`, `effort`, `session`, `speed`), and model (`model`) — each on its own line, with no selected fields in a category omitting that line. Each row still auto-wraps to terminal width and keeps the usual field order. In grouped mode the `speed` field merges into the conversation row instead of occupying its own trailing line. Toggle it via `/glm-statusline:configure` (press `l`) or set `"layout": "grouped"` in the config file; the default remains the single-line layout.
