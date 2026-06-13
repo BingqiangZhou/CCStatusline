@@ -1,7 +1,8 @@
 name: Release
 
 # When a version tag (vX.Y.Z) is pushed, publish a GitHub Release whose body is
-# the matching entry pulled from CHANGELOG.md. The tag itself already makes the
+# the matching changelog entry in BOTH English (CHANGELOG.md) and Chinese
+# (CHANGELOG.zh.md), plus links to both files. The tag itself already makes the
 # version installable via `claude plugin update`; this Release just surfaces the
 # changelog on the GitHub UI.
 on:
@@ -26,39 +27,49 @@ jobs:
           echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           echo "number=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Extract changelog entry
+      - name: Build release body (bilingual changelog + links)
         id: changelog
         run: |
           version="${{ steps.version.outputs.number }}"
-          # Grab the body of the "## <version>" section from CHANGELOG.md:
-          # everything after its heading up to the next "## " heading, with
-          # leading/trailing blank lines trimmed. Pure awk so it's portable.
-          entry=$(awk -v v="$version" '
-            /^## / {
-              if (in_section) { in_section = 0 }
-              if ($2 == v) { in_section = 1 }
-              next
-            }
-            in_section {
-              if (!started && $0 ~ /^[[:space:]]*$/) next
-              started = 1
-              lines[++n] = $0
-            }
-            END {
-              while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--
-              for (i = 1; i <= n; i++) print lines[i]
-            }
-          ' CHANGELOG.md)
+          tag="${{ steps.version.outputs.tag }}"
+          repo="${{ github.repository }}"
 
-          if [ -z "$(printf '%s' "$entry" | tr -d '[:space:]')" ]; then
-            entry="No CHANGELOG.md entry found for version ${version}."
-          fi
+          # Extract the "## <version>" section body from a changelog file
+          # (text after its heading up to the next "## " heading, with leading/
+          # trailing blank lines trimmed). Pure awk so it's portable.
+          extract() {
+            awk -v v="$2" '
+              /^## / {
+                if (in_section) { in_section = 0 }
+                if ($2 == v) { in_section = 1 }
+                next
+              }
+              in_section {
+                if (!started && $0 ~ /^[[:space:]]*$/) next
+                started = 1
+                lines[++n] = $0
+              }
+              END {
+                while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--
+                for (i = 1; i <= n; i++) print lines[i]
+              }
+            ' "$1"
+          }
+
+          en=$(extract CHANGELOG.md "$version")
+          zh=$(extract CHANGELOG.zh.md "$version")
+          [ -z "$(printf '%s' "$en" | tr -d '[:space:]')" ] && en="No CHANGELOG.md entry found for version ${version}."
+          [ -z "$(printf '%s' "$zh" | tr -d '[:space:]')" ] && zh="暂无该版本的中文更新日志条目（${version}）。"
+
+          en_url="https://github.com/${repo}/blob/${tag}/CHANGELOG.md"
+          zh_url="https://github.com/${repo}/blob/${tag}/CHANGELOG.zh.md"
 
           # Multi-line value via the heredoc delimiter syntax.
           {
-            echo "body<<CHANGELOG_EOF"
-            printf '%s\n' "$entry"
-            echo "CHANGELOG_EOF"
+            echo "body<<RELEASE_EOF"
+            printf '## English\n\n%s\n\n## 中文\n\n%s\n\n---\n\n- Full changelog (English): [CHANGELOG.md](%s)\n- 完整更新日志（中文）：[CHANGELOG.zh.md](%s)\n' \
+              "$en" "$zh" "$en_url" "$zh_url"
+            echo "RELEASE_EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
