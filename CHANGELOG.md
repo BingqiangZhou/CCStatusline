@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.12 - 2026-06-13
+
+- Added an optional `speed` field showing the current output throughput in tokens/sec, derived from the transcript's output-token growth over the `cost.total_api_duration_ms` growth (real API time, so idle between renders can't inflate the number), with per-session state cached by `session_id`. The first reading shows `--`, the value holds while idle, and it decays to `0` after 30s of no new output. Falls back to the transcript-timestamp span, then wall-clock, when `cost.total_api_duration_ms` is unavailable. Toggle it via `/glm-statusline:configure`; off by default.
+
 ## 1.2.11 - 2026-06-13
 
 - Fixed the context bar still flashing to `0%` mid-session in some cases. Claude Code occasionally emits a literal `0` for `used_percentage` during session transitions (between turns, model switch); the previous fix only held steady across `null` readings. A reported `0` is now treated as transient when a real value is already cached for the session, and is deliberately not written to the cache so it can't poison later ticks. A genuine `0` at the very start of a session (no prior value) is still cached so the bar holds `0%` instead of flashing to `--%`.
