@@ -1,15 +1,12 @@
-# Claude Code 插件系统学习笔记 & GLM StatusLine 插件
+# GLM StatusLine · Claude Code 状态栏插件
 
-这是一个**以 GLM StatusLine 为实践案例，系统学习 Claude Code 插件开发**的项目。
+**GLM StatusLine** 是一个 Claude Code 状态栏插件，在 Claude Code 底部显示 GLM / Z.ai 的用量：5 小时额度、MCP/tools 额度、上下文占比、会话 token、当天 / 30 天用量、映射后的模型名、effort 等级、输出速度等。支持交互式选择字段、终端宽度自适应换行，以及单行 / 分组两种布局。
 
-项目包含两部分核心内容：
-
-1. **Claude Code 插件系统学习笔记**（`notes/` 目录，共 11 篇）：从插件概览到每种能力的详解，最后以 GLM StatusLine 为完整实践案例。
-2. **GLM StatusLine 插件**：一个可工作的 Claude Code 状态栏插件，在底部显示 GLM / Z.ai 用量。
-
-它不是 GLM、Z.ai 或 Claude Code 官方插件，只是一个学习型实验项目。如果你也想研究 Claude Code 插件怎么写，这个仓库可以当一个从笔记到代码的完整样例。
+它不是 GLM、Z.ai 或 Claude Code 的官方插件，只是一个个人实验项目。
 
 > **注意**：本项目无任何外部依赖，全部使用 Node.js 标准库（`fs`、`path`、`os`、`http`、`https`、`url`、`child_process`、`readline`、`assert`）。
+
+> 仓库同时附带 11 篇 Claude Code 插件系统学习笔记（`notes/` 目录），以本插件为完整实践案例，作为次要内容放在[文末附录](#claude-code-插件系统学习笔记)。
 
 ## 资料可靠性说明
 
@@ -21,51 +18,7 @@
 
 ---
 
-## 关于学习技术和使用 AI 的一些想法
-
-学习一个工具或技术，核心是理解它的**概念、适用场景和边界**——知道它是什么、能做什么、什么时候该用它。不需要逐行读懂它的源码实现，只要对原理有大致的把握就够了。
-
-把这种思路代入到 AI 工具上：**AI 给出好结果的前提是你能给出清晰的指令。** 而写出清晰指令的能力，恰恰来自你对相关概念的理解——你知道有哪些选项、每个选项意味着什么、哪个选项最适合当前的情况。形成了一个循环：
-
-```text
-学习概念和原理
-  → 知道该用什么、怎么描述需求
-    → 给 AI 明确的指令
-      → AI 产出高质量的结果
-```
-
-在这个循环中，AI 本身也可以加速学习过程——你可以在和 AI 的对话中快速了解一个领域的概念体系、澄清模糊的理解、验证自己的想法。**用 AI 学习技术和工具，确定要做什么、用什么合适；再用 AI 把具体的事情实现出来。**
-
-本仓库就是这个思路的一个实践：先通过学习笔记系统梳理 Claude Code 插件的概念和能力边界，再以 GLM StatusLine 作为案例把理解转化为可运行的代码。
-
----
-
-## Claude Code 插件系统学习笔记
-
-以下 11 篇笔记系统覆盖了 Claude Code 插件的全部能力，每篇都包含配置示例和参考资料：
-
-| 篇号 | 主题 | 内容概要 | 文件 |
-| --- | --- | --- | --- |
-| 1 | 插件系统概览 | 最小插件、目录映射、plugin.json、marketplace.json、生命周期 | [01-插件系统概览.md](notes/01-插件系统概览.md) |
-| 2 | Skill | SKILL.md 写法、frontmatter、参数系统、动态命令注入 | [02-Skill.md](notes/02-Skill.md) |
-| 3 | Agents | 自定义 subagent、工具控制、模型选择、isolation | [03-Agents.md](notes/03-Agents.md) |
-| 4 | Hooks | 生命周期事件（20+）、hook 类型、matcher、拦截与注入 | [04-Hooks.md](notes/04-Hooks.md) |
-| 5 | MCP | 传输类型（stdio/http/sse/ws）、配置、插件 MCP | [05-MCP.md](notes/05-MCP.md) |
-| 6 | LSP | 语言服务器集成、代码智能、诊断、导航 | [06-LSP.md](notes/06-LSP.md) |
-| 7 | Output Styles | 回答风格定义、内置风格、force-for-plugin | [07-Output-Styles.md](notes/07-Output-Styles.md) |
-| 8 | Themes | 终端颜色主题、颜色 token、插件主题加载 | [08-Themes.md](notes/08-Themes.md) |
-| 9 | Monitors | 后台监听进程、输出传递、触发条件 | [09-Monitors.md](notes/09-Monitors.md) |
-| 10 | Bin | 可执行脚本、PATH 注入、薄入口模式 | [10-Bin.md](notes/10-Bin.md) |
-| 11 | 实践案例 | GLM StatusLine 完整案例：需求→选型→设计→实现 | [11-实践案例-GLM-StatusLine.md](notes/11-实践案例-GLM-StatusLine.md) |
-
-早期笔记（归档于 `notes/archive/`）：
-
-- [第一篇（归档）：Claude Code 底部显示 GLM Coding Plan 用量](notes/archive/old-第一篇-单文件状态栏笔记.md)
-- [第二篇（归档）：如何写一个 Claude Code 插件](notes/archive/old-第二篇-如何写一个Claude-Code插件.md)
-
----
-
-## 插件功能
+## 功能
 
 ### 1. Claude Code 状态栏
 
@@ -435,7 +388,7 @@ claude --plugin-dir .
 
 这中间最值得注意的取舍是：插件可以被安装，但 Claude Code 的主状态栏仍然属于用户界面配置。直接让插件静默覆盖用户 status line 不太合适，所以本项目采用“先安装插件，再由用户运行 install skill 显式启用”的方式。
 
-更详细的开发过程和技术分析见页首的 **[Claude Code 插件系统学习笔记](#claude-code-插件系统学习笔记)** 系列（共 11 篇）。
+更详细的开发过程和技术分析见文末附录的 **[Claude Code 插件系统学习笔记](#claude-code-插件系统学习笔记)** 系列（共 11 篇）。
 
 技术文档：
 
@@ -517,3 +470,49 @@ CCStatusline/
 - 把插件发布到更正式的 marketplace，而不只是本地路径安装。
 - 给 quota API 返回结构补更多样例测试，避免接口字段变化后解析失效。
 - 给 README 增加常见问题，比如状态栏不刷新、显示 0%、API key 缺失、旧版本 launcher 残留等。
+
+---
+
+## 附录：学习笔记与延伸阅读
+
+本仓库同时也是一份 Claude Code 插件系统的学习资料——先通过笔记系统梳理概念与能力边界，再以 GLM StatusLine 作为案例把理解转化为可运行代码。
+
+### 关于学习技术和使用 AI 的一些想法
+
+学习一个工具或技术，核心是理解它的**概念、适用场景和边界**——知道它是什么、能做什么、什么时候该用它。不需要逐行读懂它的源码实现，只要对原理有大致的把握就够了。
+
+把这种思路代入到 AI 工具上：**AI 给出好结果的前提是你能给出清晰的指令。** 而写出清晰指令的能力，恰恰来自你对相关概念的理解——你知道有哪些选项、每个选项意味着什么、哪个选项最适合当前的情况。形成了一个循环：
+
+```text
+学习概念和原理
+  → 知道该用什么、怎么描述需求
+    → 给 AI 明确的指令
+      → AI 产出高质量的结果
+```
+
+在这个循环中，AI 本身也可以加速学习过程——你可以在和 AI 的对话中快速了解一个领域的概念体系、澄清模糊的理解、验证自己的想法。**用 AI 学习技术和工具，确定要做什么、用什么合适；再用 AI 把具体的事情实现出来。**
+
+本仓库就是这个思路的一个实践：先通过学习笔记系统梳理 Claude Code 插件的概念和能力边界，再以 GLM StatusLine 作为案例把理解转化为可运行的代码。
+
+### Claude Code 插件系统学习笔记
+
+以下 11 篇笔记系统覆盖了 Claude Code 插件的全部能力，每篇都包含配置示例和参考资料：
+
+| 篇号 | 主题 | 内容概要 | 文件 |
+| --- | --- | --- | --- |
+| 1 | 插件系统概览 | 最小插件、目录映射、plugin.json、marketplace.json、生命周期 | [01-插件系统概览.md](notes/01-插件系统概览.md) |
+| 2 | Skill | SKILL.md 写法、frontmatter、参数系统、动态命令注入 | [02-Skill.md](notes/02-Skill.md) |
+| 3 | Agents | 自定义 subagent、工具控制、模型选择、isolation | [03-Agents.md](notes/03-Agents.md) |
+| 4 | Hooks | 生命周期事件（20+）、hook 类型、matcher、拦截与注入 | [04-Hooks.md](notes/04-Hooks.md) |
+| 5 | MCP | 传输类型（stdio/http/sse/ws）、配置、插件 MCP | [05-MCP.md](notes/05-MCP.md) |
+| 6 | LSP | 语言服务器集成、代码智能、诊断、导航 | [06-LSP.md](notes/06-LSP.md) |
+| 7 | Output Styles | 回答风格定义、内置风格、force-for-plugin | [07-Output-Styles.md](notes/07-Output-Styles.md) |
+| 8 | Themes | 终端颜色主题、颜色 token、插件主题加载 | [08-Themes.md](notes/08-Themes.md) |
+| 9 | Monitors | 后台监听进程、输出传递、触发条件 | [09-Monitors.md](notes/09-Monitors.md) |
+| 10 | Bin | 可执行脚本、PATH 注入、薄入口模式 | [10-Bin.md](notes/10-Bin.md) |
+| 11 | 实践案例 | GLM StatusLine 完整案例：需求→选型→设计→实现 | [11-实践案例-GLM-StatusLine.md](notes/11-实践案例-GLM-StatusLine.md) |
+
+早期笔记（归档于 `notes/archive/`）：
+
+- [第一篇（归档）：Claude Code 底部显示 GLM Coding Plan 用量](notes/archive/old-第一篇-单文件状态栏笔记.md)
+- [第二篇（归档）：如何写一个 Claude Code 插件](notes/archive/old-第二篇-如何写一个Claude-Code插件.md)
