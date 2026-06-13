@@ -737,7 +737,7 @@ async function verifyGroupedLayout({ tempDir }) {
     groupedConfigFile,
     JSON.stringify(
       {
-        display: ['plan', '5h', 'mcp', 'context', 'effort', 'session', 'model', 'day', '30d'],
+        display: ['plan', '5h', 'mcp', 'context', 'effort', 'session', 'model', 'day', '30d', 'speed'],
         layout: 'grouped',
       },
       null,
@@ -757,13 +757,13 @@ async function verifyGroupedLayout({ tempDir }) {
   assert.strictEqual(grouped.status, 0, grouped.stderr);
   const groupedLines = grouped.stdout.trim().split('\n');
   assert.strictEqual(groupedLines.length, 3, `expected 3 grouped lines, got:\n${grouped.stdout}`);
-  assert.match(groupedLines[0], /^GLM │ 5H .+ @--:-- │ MCP .+ @-- │ Day 0 │ 30D 0$/);
-  assert.match(groupedLines[1], /^Context .+ │ Effort high │ Session 0$/);
-  assert.match(groupedLines[2], /^Model /);
+  assert.match(groupedLines[0], /^GLM │ 5H .+ @--:-- │ MCP .+ @--$/);
+  assert.match(groupedLines[1], /^Context .+ │ Session 0 │ Day 0 │ 30D 0$/);
+  assert.match(groupedLines[2], /^Model .+ │ Effort high │ Speed/);
 
-  // 2. In grouped mode, speed shares the conversation line (no dedicated trailing line).
+  // 2. In grouped mode, speed shares its row (model / effort / speed), no dedicated trailing line.
   const speedConfig = path.join(tempDir, 'grouped-speed-config.json');
-  fs.writeFileSync(speedConfig, JSON.stringify({ display: ['session', 'speed'], layout: 'grouped' }, null, 2));
+  fs.writeFileSync(speedConfig, JSON.stringify({ display: ['model', 'speed'], layout: 'grouped' }, null, 2));
   const speedCache = path.join(tempDir, 'grouped-speed-cache.json');
   fs.writeFileSync(speedCache, '{}');
   const speedTranscript = path.join(tempDir, 'grouped-speed-transcript.jsonl');
@@ -780,6 +780,7 @@ async function verifyGroupedLayout({ tempDir }) {
   writeSpeed(400, new Date().toISOString());
   await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({
+      model: { display_name: 'Sonnet' },
       session_id: speedSession,
       transcript_path: speedTranscript,
       cost: { total_api_duration_ms: 4000 },
@@ -789,6 +790,7 @@ async function verifyGroupedLayout({ tempDir }) {
   writeSpeed(800, new Date().toISOString());
   const speedStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({
+      model: { display_name: 'Sonnet' },
       session_id: speedSession,
       transcript_path: speedTranscript,
       cost: { total_api_duration_ms: 8000 },
@@ -800,9 +802,9 @@ async function verifyGroupedLayout({ tempDir }) {
   assert.strictEqual(
     speedLines.length,
     1,
-    `speed should share the session line in grouped mode, got:\n${speedStatus.stdout}`
+    `speed should share the model row in grouped mode, got:\n${speedStatus.stdout}`
   );
-  assert.match(speedLines[0], /^Session .*Speed \d+ t\/s · Avg/);
+  assert.match(speedLines[0], /^Model .*Speed \d+ t\/s · Avg/);
 }
 
 async function main() {

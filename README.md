@@ -99,7 +99,7 @@
 | `model` | Claude Code 当前模型映射后的 GLM 模型名 |
 | `effort` | 当前推理 effort 等级（`low` / `medium` / `high` / `xhigh` / `max`，来自 Claude Code `effort.level`） |
 | `session` | 当前会话累计 token 数 |
-| `speed` | 输出速度：`Speed <当前> t/s · Avg <会话均值> t/s`。默认（单行）布局下独占一行；分组布局（`layout: grouped`）下归入「当前对话」行。当前速度 = 输出 token 增量 ÷ API 耗时增量，空闲时保持上次读数（不归零，首次为 `--`）；平均速度 = 会话累计输出 ÷ 累计 API 耗时。opt-in，默认不显示 |
+| `speed` | 输出速度：`Speed <当前> t/s · Avg <会话均值> t/s`。默认（单行）布局下独占一行；分组布局（`layout: grouped`）下并入所在分组行（与 `model`、`effort` 同行）。当前速度 = 输出 token 增量 ÷ API 耗时增量，空闲时保持上次读数（不归零，首次为 `--`）；平均速度 = 会话累计输出 ÷ 累计 API 耗时。opt-in，默认不显示 |
 | `day` | 当天 GLM / Z.ai token 用量 |
 | `30d` | 近 30 天 GLM / Z.ai token 用量 |
 
@@ -110,18 +110,18 @@
 状态栏有两种布局，通过配置文件的 `layout` 字段切换（opt-in，默认 `single`）：
 
 - `single`（默认）：所有字段按 `display` 顺序排成一行，超过终端宽度时在字段边界自动换行。`speed` 在此布局下独占末尾一行。
-- `grouped`：按类别拆成多行，每行内部仍遵守上面的顺序，且各自仍会按终端宽度换行。类别与归属：
-  - 第 1 行「套餐」：`plan`、`5h`、`mcp`、`day`、`30d`
-  - 第 2 行「当前对话」：`context`、`effort`、`session`、`speed`
-  - 第 3 行「模型」：`model`
+- `grouped`：按固定分组把字段拆成三行，每行内部仍遵守上面的字段顺序，且各自仍会按终端宽度换行。分组如下：
+  - 第 1 行：`plan`、`5h`、`mcp`
+  - 第 2 行：`context`、`session`、`day`、`30d`
+  - 第 3 行：`model`、`effort`、`speed`
 
-  没有选中任何字段的类别会整行省略。`speed` 在此布局下并入「当前对话」行（不再独占一行）。
+  没有选中任何字段的分组会整行省略。`speed` 在此布局下并入第 3 行（与 `model`、`effort` 同行，不再独占一行）。
 
 启用分组布局的配置示例：
 
 ```json
 {
-  "display": ["plan", "5h", "mcp", "context", "effort", "session", "model", "day", "30d"],
+  "display": ["plan", "5h", "mcp", "context", "session", "model", "day", "30d", "effort", "speed"],
   "layout": "grouped"
 }
 ```
@@ -129,9 +129,9 @@
 效果（终端足够宽时为三行）：
 
 ```text
-GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14 │ Day 42.8M │ 30D 5.98B
-Context █▒░░░░░░ 12% │ Effort high │ Session 160K
-Model glm-4.6
+GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14
+Context █▒░░░░░░ 12% │ Session 160K │ Day 42.8M │ 30D 5.98B
+Model glm-4.6 │ Effort high │ Speed 100 t/s · Avg 47 t/s
 ```
 
 ### 2. GLM / Z.ai API 用量读取
