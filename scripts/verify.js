@@ -730,6 +730,81 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   assert.match(mixedLines[1], /^Speed \d+ t\/s · Avg \d+ t\/s$/);
 }
 
+async function verifyGroupedLayout({ tempDir }) {
+  // 1. All fields + grouped layout -> exactly 3 category lines (quota / session / model).
+  const groupedConfigFile = path.join(tempDir, 'grouped-layout-config.json');
+  fs.writeFileSync(
+    groupedConfigFile,
+    JSON.stringify(
+      {
+        display: ['plan', '5h', 'mcp', 'context', 'effort', 'session', 'model', 'day', '30d'],
+        layout: 'grouped',
+      },
+      null,
+      2
+    )
+  );
+  const groupedCache = path.join(tempDir, 'grouped-layout-cache.json');
+  fs.writeFileSync(groupedCache, '{}');
+  const grouped = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({
+      model: { display_name: 'Sonnet' },
+      effort: { level: 'high' },
+      context_window: { used_percentage: 12, context_window_size: 200000 },
+    }),
+    env: baseEnv(groupedConfigFile, groupedCache),
+  });
+  assert.strictEqual(grouped.status, 0, grouped.stderr);
+  const groupedLines = grouped.stdout.trim().split('\n');
+  assert.strictEqual(groupedLines.length, 3, `expected 3 grouped lines, got:\n${grouped.stdout}`);
+  assert.match(groupedLines[0], /^GLM │ 5H .+ @--:-- │ MCP .+ @-- │ Day 0 │ 30D 0$/);
+  assert.match(groupedLines[1], /^Context .+ │ Effort high │ Session 0$/);
+  assert.match(groupedLines[2], /^Model /);
+
+  // 2. In grouped mode, speed shares the conversation line (no dedicated trailing line).
+  const speedConfig = path.join(tempDir, 'grouped-speed-config.json');
+  fs.writeFileSync(speedConfig, JSON.stringify({ display: ['session', 'speed'], layout: 'grouped' }, null, 2));
+  const speedCache = path.join(tempDir, 'grouped-speed-cache.json');
+  fs.writeFileSync(speedCache, '{}');
+  const speedTranscript = path.join(tempDir, 'grouped-speed-transcript.jsonl');
+  const speedSession = 'grouped-speed-session';
+  const writeSpeed = (outTokens, isoTs) => {
+    fs.writeFileSync(
+      speedTranscript,
+      `${JSON.stringify({
+        timestamp: isoTs,
+        message: { usage: { input_tokens: 1000, output_tokens: outTokens } },
+      })}\n`
+    );
+  };
+  writeSpeed(400, new Date().toISOString());
+  await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({
+      session_id: speedSession,
+      transcript_path: speedTranscript,
+      cost: { total_api_duration_ms: 4000 },
+    }),
+    env: baseEnv(speedConfig, speedCache),
+  });
+  writeSpeed(800, new Date().toISOString());
+  const speedStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({
+      session_id: speedSession,
+      transcript_path: speedTranscript,
+      cost: { total_api_duration_ms: 8000 },
+    }),
+    env: baseEnv(speedConfig, speedCache),
+  });
+  assert.strictEqual(speedStatus.status, 0, speedStatus.stderr);
+  const speedLines = speedStatus.stdout.trim().split('\n');
+  assert.strictEqual(
+    speedLines.length,
+    1,
+    `speed should share the session line in grouped mode, got:\n${speedStatus.stdout}`
+  );
+  assert.match(speedLines[0], /^Session .*Speed \d+ t\/s · Avg/);
+}
+
 async function main() {
   verifyProjectMetadata();
 
@@ -748,6 +823,7 @@ async function main() {
   verifyInstallerWorkflow(context);
   await verifyEffortAndContextFix(context);
   await verifyTokenOutputSpeed(context);
+  await verifyGroupedLayout(context);
   console.log('All plugin verification checks passed.');
 }
 

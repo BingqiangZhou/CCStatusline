@@ -99,11 +99,40 @@
 | `model` | Claude Code 当前模型映射后的 GLM 模型名 |
 | `effort` | 当前推理 effort 等级（`low` / `medium` / `high` / `xhigh` / `max`，来自 Claude Code `effort.level`） |
 | `session` | 当前会话累计 token 数 |
-| `speed` | 输出速度，独占一行：`Speed <当前> t/s · Avg <会话均值> t/s`。当前速度 = 输出 token 增量 ÷ API 耗时增量，空闲时保持上次读数（不归零，首次为 `--`）；平均速度 = 会话累计输出 ÷ 累计 API 耗时。opt-in，默认不显示 |
+| `speed` | 输出速度：`Speed <当前> t/s · Avg <会话均值> t/s`。默认（单行）布局下独占一行；分组布局（`layout: grouped`）下归入「当前对话」行。当前速度 = 输出 token 增量 ÷ API 耗时增量，空闲时保持上次读数（不归零，首次为 `--`）；平均速度 = 会话累计输出 ÷ 累计 API 耗时。opt-in，默认不显示 |
 | `day` | 当天 GLM / Z.ai token 用量 |
 | `30d` | 近 30 天 GLM / Z.ai token 用量 |
 
 默认显示 `5h`、`mcp`、`session`、`day`。
+
+#### 布局（单行 / 分组）
+
+状态栏有两种布局，通过配置文件的 `layout` 字段切换（opt-in，默认 `single`）：
+
+- `single`（默认）：所有字段按 `display` 顺序排成一行，超过终端宽度时在字段边界自动换行。`speed` 在此布局下独占末尾一行。
+- `grouped`：按类别拆成多行，每行内部仍遵守上面的顺序，且各自仍会按终端宽度换行。类别与归属：
+  - 第 1 行「套餐」：`plan`、`5h`、`mcp`、`day`、`30d`
+  - 第 2 行「当前对话」：`context`、`effort`、`session`、`speed`
+  - 第 3 行「模型」：`model`
+
+  没有选中任何字段的类别会整行省略。`speed` 在此布局下并入「当前对话」行（不再独占一行）。
+
+启用分组布局的配置示例：
+
+```json
+{
+  "display": ["plan", "5h", "mcp", "context", "effort", "session", "model", "day", "30d"],
+  "layout": "grouped"
+}
+```
+
+效果（终端足够宽时为三行）：
+
+```text
+GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14 │ Day 42.8M │ 30D 5.98B
+Context █▒░░░░░░ 12% │ Effort high │ Session 160K
+Model glm-4.6
+```
 
 ### 2. GLM / Z.ai API 用量读取
 
@@ -184,12 +213,13 @@ Select fields to show. Type a number to toggle it, q to finish.
 8. [ ] output speed
 9. [x] day tokens
 10. [ ] 30d tokens
+Layout: single — type 'l' to switch single/grouped.
 
 Preview:
 GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14 │ Session 160K │ Day 42.8M
 ```
 
-配置只有一种主路径：无参数运行 `/glm-statusline:configure`，输入数字切换字段，每次切换都会自动保存并预览。
+配置只有一种主路径：无参数运行 `/glm-statusline:configure`，输入数字切换字段，输入 `l` 在单行 / 分组布局间切换，每次切换都会自动保存并预览。
 真实底部状态栏会在下一次 Claude Code 交互或 refresh interval 后刷新。
 当选择字段较多时，状态栏会根据当前终端宽度（`COLUMNS` 环境变量）做保守估算，并在字段边界自动换行，避免后面的百分比被挤出可见区域。换行计算正确处理了 CJK 字符和 `░▒▓█` 渐变字符的显示宽度。
 

@@ -36,7 +36,7 @@ const os = require('os');
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
-const { DEFAULT_DISPLAY, normalizeDisplayList } = require('./lib/display-fields');
+const { DEFAULT_DISPLAY, groupDisplay, normalizeDisplayList } = require('./lib/display-fields');
 const {
   clampPercent,
   formatAge,
@@ -117,11 +117,15 @@ function readStatusConfig(env = process.env) {
   let display = fromFile.length ? fromFile : [...DEFAULT_DISPLAY];
   if (!display.length) display = [...DEFAULT_DISPLAY];
   const maxWidth = readMaxWidth(env);
+  // Opt-in grouped layout: fields are split into quota / session / model lines.
+  // Anything other than the literal 'grouped' keeps the default single-line behaviour.
+  const layout = fileConfig.layout === 'grouped' ? 'grouped' : 'single';
 
   return {
     configPath,
     display,
     maxWidth,
+    layout,
   };
 }
 
@@ -1093,7 +1097,28 @@ async function renderStatusLine(sessionContext = {}) {
     session: `Session ${formatTokens(sessionTokens)}`,
     day: `Day ${formatTokens(dayTokens ?? 0)}`,
     '30d': `30D ${formatTokens(monthTokens ?? 0)}`,
+    // `speed` is only placed inline in the grouped layout. In the single-line layout it is
+    // filtered out of mainSegments below and rendered on its own trailing line. formatSpeed(null)
+    // -> '--', so this is harmless when speed is not selected (speedStats stays null then).
+    speed: `Speed ${formatSpeed(speedStats.current)} t/s · Avg ${formatSpeed(speedStats.average)} t/s`,
   };
+
+  // Grouped layout: render each category (quota / session / model) on its own line, keeping
+  // DISPLAY_FIELDS canonical order within a group and letting each line still wrap to maxWidth.
+  // Empty groups (no selected field) are skipped.
+  if (config.layout === 'grouped') {
+    const groupLines = [];
+    for (const keys of groupDisplay(config.display)) {
+      const segments = keys.map((key) => fields[key]).filter(Boolean);
+      if (segments.length) groupLines.push(wrapSegments(segments, config.maxWidth));
+    }
+    // Defensive fallback: nothing to render -> show the default display (grouped).
+    if (!groupLines.length) {
+      const segments = DEFAULT_DISPLAY.map((key) => fields[key]).filter(Boolean);
+      if (segments.length) groupLines.push(wrapSegments(segments, config.maxWidth));
+    }
+    return groupLines.join('\n');
+  }
 
   const showSpeed = config.display.includes('speed');
   const mainSegments = config.display

@@ -73,6 +73,7 @@ function baseConfigFromFile() {
   const display = normalizeDisplayList(previous.display);
   return {
     display: display.length ? display : [...DEFAULT_DISPLAY],
+    layout: previous.layout === 'grouped' ? 'grouped' : 'single',
   };
 }
 
@@ -167,6 +168,7 @@ function printInteractiveState(config) {
   FIELD_ORDER.forEach((field, index) => {
     console.log(`${index + 1}. [${selected.has(field) ? 'x' : ' '}] ${FIELD_LABELS[field]}`);
   });
+  console.log(`Layout: ${config.layout} — type 'l' to switch single/grouped.`);
   console.log(renderPreview());
 }
 
@@ -212,6 +214,12 @@ async function interactiveConfigure() {
   const handleInput = (line) => {
     const value = String(line || '').trim().toLowerCase();
     if (!value || value === 'q' || value === 'quit' || value === 'done') return false;
+    if (value === 'l') {
+      config = { ...config, layout: config.layout === 'grouped' ? 'single' : 'grouped' };
+      writeConfig(config);
+      printInteractiveState(config);
+      return true;
+    }
     config = toggleField(config, value);
     writeConfig(config);
     printInteractiveState(config);

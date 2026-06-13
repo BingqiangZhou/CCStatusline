@@ -11,16 +11,18 @@ Run the interactive configurator from the plugin `bin` directory:
 glm-statusline-install.js configure
 ```
 
-The command opens a numbered selector. The user can type a number to toggle one field; after every toggle, the command saves the config and prints a fresh `Preview:` block.
+The command opens a numbered selector. The user can type a number to toggle one field; typing `l` switches between the single-line and grouped layouts (quota / conversation / model on separate lines). After every toggle, the command saves the config and prints a fresh `Preview:` block.
 
-Supported fields are:
+Supported fields are (selector order):
 
 - `plan`
 - `5h`
 - `mcp`
 - `context`
 - `model`
+- `effort`
 - `session`
+- `speed`
 - `day`
 - `30d`
 
