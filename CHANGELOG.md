@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.14 - 2026-06-13
+
+- Added an opt-in `grouped` layout that splits the status line into category rows: quota (`plan`, `5h`, `mcp`, `day`, `30d`), current conversation (`context`, `effort`, `session`, `speed`), and model (`model`) — each on its own line, with no selected fields in a category omitting that line. Each row still auto-wraps to terminal width and keeps the usual field order. In grouped mode the `speed` field merges into the conversation row instead of occupying its own trailing line. Toggle it via `/glm-statusline:configure` (press `l`) or set `"layout": "grouped"` in the config file; the default remains the single-line layout.
+
 ## 1.2.13 - 2026-06-13
 
 - Upgraded the optional `speed` field to show both current and session-average output throughput on its own dedicated line: `Speed <current> t/s · Avg <average> t/s`. Average is cumulative output tokens ÷ cumulative API time. The current value no longer drops to `0` when idle — it holds the last measured speed (`--` only before the first measurement). Also fixed `Avg 0 t/s` appearing on sessions with API time but no output tokens yet.
