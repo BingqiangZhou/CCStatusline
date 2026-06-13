@@ -173,7 +173,7 @@ function printInteractiveState(config) {
   console.log(`Layout — press 'l' to switch to ${isGrouped ? 'single' : 'grouped'}:`);
   console.log(`  [${isGrouped ? ' ' : 'x'}] single   all fields on one line (wraps to terminal width)`);
   console.log(
-    `  [${isGrouped ? 'x' : ' '}] grouped  split into 3 rows: plan, 5h, mcp  /  context, session, day, 30d  /  model, effort, speed`
+    `  [${isGrouped ? 'x' : ' '}] grouped  split into 3 rows: model, effort, speed  /  context, session, day, 30d  /  plan, 5h, mcp`
   );
   console.log(renderPreview());
 }

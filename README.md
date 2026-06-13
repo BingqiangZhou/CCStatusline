@@ -64,11 +64,11 @@
 
 - `single`（默认）：所有字段按 `display` 顺序排成一行，超过终端宽度时在字段边界自动换行。`speed` 在此布局下独占末尾一行。
 - `grouped`：按固定分组把字段拆成三行，每行内部仍遵守上面的字段顺序，且各自仍会按终端宽度换行。分组如下：
-  - 第 1 行：`plan`、`5h`、`mcp`
+  - 第 1 行：`model`、`effort`、`speed`
   - 第 2 行：`context`、`session`、`day`、`30d`
-  - 第 3 行：`model`、`effort`、`speed`
+  - 第 3 行：`plan`、`5h`、`mcp`
 
-  没有选中任何字段的分组会整行省略。`speed` 在此布局下并入第 3 行（与 `model`、`effort` 同行，不再独占一行）。
+  没有选中任何字段的分组会整行省略。`speed` 在此布局下并入第 1 行（与 `model`、`effort` 同行，不再独占一行）。
 
 启用分组布局的配置示例：
 
@@ -82,9 +82,9 @@
 效果（终端足够宽时为三行）：
 
 ```text
-GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14
-Context █▒░░░░░░ 12% │ Session 160K │ Day 42.8M │ 30D 5.98B
 Model glm-4.6 │ Effort high │ Speed 100 t/s · Avg 47 t/s
+Context █▒░░░░░░ 12% │ Session 160K │ Day 42.8M │ 30D 5.98B
+GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14
 ```
 
 ### 2. GLM / Z.ai API 用量读取
@@ -169,7 +169,7 @@ Select fields to show. Type a number to toggle it, q to finish.
 
 Layout — press 'l' to switch to grouped:
   [x] single   all fields on one line (wraps to terminal width)
-  [ ] grouped  split into 3 rows: plan, 5h, mcp  /  context, session, day, 30d  /  model, effort, speed
+  [ ] grouped  split into 3 rows: model, effort, speed  /  context, session, day, 30d  /  plan, 5h, mcp
 
 Preview:
 GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14 │ Session 160K │ Day 42.8M

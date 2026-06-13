@@ -731,7 +731,7 @@ async function verifyTokenOutputSpeed({ tempDir }) {
 }
 
 async function verifyGroupedLayout({ tempDir }) {
-  // 1. All fields + grouped layout -> exactly 3 category lines (quota / session / model).
+  // 1. All fields + grouped layout -> exactly 3 category lines (model / session / quota).
   const groupedConfigFile = path.join(tempDir, 'grouped-layout-config.json');
   fs.writeFileSync(
     groupedConfigFile,
@@ -757,9 +757,9 @@ async function verifyGroupedLayout({ tempDir }) {
   assert.strictEqual(grouped.status, 0, grouped.stderr);
   const groupedLines = grouped.stdout.trim().split('\n');
   assert.strictEqual(groupedLines.length, 3, `expected 3 grouped lines, got:\n${grouped.stdout}`);
-  assert.match(groupedLines[0], /^GLM │ 5H .+ @--:-- │ MCP .+ @--$/);
+  assert.match(groupedLines[0], /^Model .+ │ Effort high │ Speed/);
   assert.match(groupedLines[1], /^Context .+ │ Session 0 │ Day 0 │ 30D 0$/);
-  assert.match(groupedLines[2], /^Model .+ │ Effort high │ Speed/);
+  assert.match(groupedLines[2], /^GLM │ 5H .+ @--:-- │ MCP .+ @--$/);
 
   // 2. In grouped mode, speed shares its row (model / effort / speed), no dedicated trailing line.
   const speedConfig = path.join(tempDir, 'grouped-speed-config.json');
