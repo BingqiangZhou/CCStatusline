@@ -624,8 +624,15 @@ function getContextInfo(sessionContext, sessionTokens, env) {
 }
 
 // Resolve the context percentage to display, holding the last known value for the session
-// when Claude Code reports `null` (early session / after /compact) so the bar never flashes
-// to 0%. Only touches the cache when the context field is actually displayed.
+// when Claude Code reports an unreliable reading so the bar never flashes to 0%. Two cases
+// are treated as "no reliable reading this tick":
+//   - `null`: Claude Code reports used_percentage null early in a session and after /compact.
+//   - `0` while we already hold a real value: Claude Code sometimes emits a literal 0 during
+//     session transitions (between turns, model switch). Real context is never 0 once a
+//     session has produced tokens, and /clear starts a fresh session_id with no held value,
+//     so holding the last known value is always safe here.
+// The transient 0 is deliberately NOT written to the cache, so it can't poison later ticks.
+// Only touches the cache when the context field is actually displayed.
 function resolveContextPercent(sessionContext, sessionTokens, env, config) {
   const info = getContextInfo(sessionContext, sessionTokens, env);
   if (!config?.display?.includes('context')) return info.percent;
@@ -635,14 +642,17 @@ function resolveContextPercent(sessionContext, sessionTokens, env, config) {
 
   const cache = loadCache();
   const key = `context:${sessionId}`;
-  if (info.percent == null) {
-    // Unknown this tick — reuse the last known value so the bar holds steady.
-    const entry = cache[key];
-    if (entry && typeof entry.percent === 'number') return entry.percent;
-    return null;
+  const held = cache[key];
+  const hasHeldValue = held && typeof held.percent === 'number';
+  const isTransientZero = info.percent === 0 && hasHeldValue && held.percent > 0;
+
+  if (info.percent == null || isTransientZero) {
+    // Hold the last known value so the bar stays steady — do not cache the transient 0.
+    if (hasHeldValue) return held.percent;
+    return null; // nothing known yet (first-ever tick) -> rendered as --%, never 0%
   }
 
-  // Known this tick — remember it for future null ticks.
+  // Known this tick — remember it for future unknown ticks.
   cache[key] = { percent: info.percent, ts: Date.now() };
   pruneContextCache(cache);
   saveCache(cache);

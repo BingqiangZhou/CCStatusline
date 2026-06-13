@@ -579,6 +579,26 @@ async function verifyEffortAndContextFix({ tempDir }) {
   assert.match(ctxRealStatus.stdout, /Context .+ 42%/);
   const writtenCache = JSON.parse(fs.readFileSync(ctxWriteCache, 'utf8'));
   assert.strictEqual(writtenCache[`context:${sessionId}`]?.percent, 42);
+
+  // Context holds the last known value across a reported 0 tick. Claude Code sometimes
+  // emits a literal `used_percentage: 0` during session transitions (between turns, model
+  // switch); a real 0 is not "null", so the hold logic must treat it as transient when we
+  // already have a real value, or the bar flashes 12% -> 0% -> 18%.
+  const ctxZeroHoldCache = path.join(tempDir, 'context-zero-hold-cache.json');
+  fs.writeFileSync(
+    ctxZeroHoldCache,
+    JSON.stringify({ [`context:${sessionId}`]: { percent: 37, ts: Date.now() } }, null, 2)
+  );
+  const ctxZeroHoldStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({
+      context_window: { used_percentage: 0, context_window_size: 200000 },
+      session_id: sessionId,
+    }),
+    env: baseEnv(ctxConfig, ctxZeroHoldCache),
+  });
+  assert.strictEqual(ctxZeroHoldStatus.status, 0, ctxZeroHoldStatus.stderr);
+  assert.match(ctxZeroHoldStatus.stdout, /Context .+ 37%/);
+  assert.doesNotMatch(ctxZeroHoldStatus.stdout, /Context .+ 0%/);
 }
 
 async function main() {
