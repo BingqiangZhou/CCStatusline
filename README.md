@@ -99,6 +99,7 @@
 | `model` | Claude Code 当前模型映射后的 GLM 模型名 |
 | `effort` | 当前推理 effort 等级（`low` / `medium` / `high` / `xhigh` / `max`，来自 Claude Code `effort.level`） |
 | `session` | 当前会话累计 token 数 |
+| `speed` | 当前输出速度（tokens/sec，输出 token 增量 ÷ API 耗时增量；首次显示 `--`，空闲 30s 后归零；opt-in，默认不显示） |
 | `day` | 当天 GLM / Z.ai token 用量 |
 | `30d` | 近 30 天 GLM / Z.ai token 用量 |
 
@@ -173,13 +174,16 @@ API: api.z.ai · key configured · cache 12s ago
 
 ```text
 Select fields to show. Type a number to toggle it, q to finish.
-1. [x] plan
+1. [ ] plan
 2. [x] 5h quota
 3. [x] mcp/tools
 4. [ ] context
 5. [ ] model
-6. [x] session tokens
-7. [x] day tokens
+6. [ ] effort level
+7. [x] session tokens
+8. [ ] output speed
+9. [x] day tokens
+10. [ ] 30d tokens
 
 Preview:
 GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14 │ Session 160K │ Day 42.8M
@@ -325,6 +329,7 @@ pwd
 - `model`：Claude Code 当前模型映射后的 GLM 模型名。
 - `effort`：当前推理 effort 等级（Claude Code `effort.level`，模型不支持时显示 `--`）。
 - `session`：当前会话 token。
+- `speed`：当前输出速度（tokens/sec）。
 - `day`：当天 token。
 - `30d`：近 30 天 token。
 
