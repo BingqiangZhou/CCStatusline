@@ -618,7 +618,7 @@ async function verifyTokenOutputSpeed({ tempDir }) {
     );
   };
 
-  // 1. First render seeds the baseline; no speed yet -> Speed -- t/s.
+  // 1. First render seeds the baseline. current = --; average = 200 / (10000/1000) = 20 tok/s.
   fs.writeFileSync(speedCache, '{}');
   writeTranscript(200, new Date(Date.now() - 60000).toISOString());
   const first = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
@@ -626,23 +626,40 @@ async function verifyTokenOutputSpeed({ tempDir }) {
     env: baseEnv(speedConfig, speedCache),
   });
   assert.strictEqual(first.status, 0, first.stderr);
-  assert.match(first.stdout, /Speed -- t\/s/);
+  assert.match(first.stdout, /Speed -- t\/s · Avg 20 t\/s/);
+  assert.strictEqual(first.stdout.trim().split('\n').length, 1, 'speed-only config renders a single line');
   const seededCache = JSON.parse(fs.readFileSync(speedCache, 'utf8'));
   assert.ok(seededCache[`speed:${sessionId}`], 'first render should seed the speed baseline');
   assert.strictEqual(seededCache[`speed:${sessionId}`].out, 200);
 
-  // 2. Output grew 500 tokens over 5000ms of API time -> 100 tok/s.
+  // 1b. Zero output so far but cost already > 0 -> average is -- (never Avg 0).
+  const zeroCache = path.join(tempDir, 'speed-zero-cache.json');
+  fs.writeFileSync(zeroCache, '{}');
+  const zeroTranscript = path.join(tempDir, 'speed-zero-transcript.jsonl');
+  fs.writeFileSync(
+    zeroTranscript,
+    `${JSON.stringify({ timestamp: new Date().toISOString(), message: { usage: { input_tokens: 1000, output_tokens: 0 } } })}\n`
+  );
+  const zeroStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: 'speed-zero-session', transcript_path: zeroTranscript, cost: { total_api_duration_ms: 5000 } }),
+    env: baseEnv(speedConfig, zeroCache),
+  });
+  assert.strictEqual(zeroStatus.status, 0, zeroStatus.stderr);
+  assert.match(zeroStatus.stdout, /Speed -- t\/s · Avg -- t\/s/);
+  assert.doesNotMatch(zeroStatus.stdout, /Avg 0 t\/s/);
+
+  // 2. Output grew 500 tokens over 5000ms API time -> current 100; avg = 700/15 ~ 47 tok/s.
   writeTranscript(700, new Date().toISOString());
   const second = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: sessionId, transcript_path: speedTranscript, cost: { total_api_duration_ms: 15000 } }),
     env: baseEnv(speedConfig, speedCache),
   });
   assert.strictEqual(second.status, 0, second.stderr);
-  assert.match(second.stdout, /Speed 100 t\/s/);
+  assert.match(second.stdout, /Speed 100 t\/s · Avg 47 t\/s/);
 
-  // 3. Idle (no new output), within decay window -> holds last shown value.
+  // 3. Idle holds the last value even when the baseline ts is long stale (v2: no decay to 0).
   const heldCache = JSON.parse(fs.readFileSync(speedCache, 'utf8'));
-  heldCache[`speed:${sessionId}`].ts = Date.now() - 5000;
+  heldCache[`speed:${sessionId}`].ts = Date.now() - 120000;
   fs.writeFileSync(speedCache, JSON.stringify(heldCache));
   const third = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: sessionId, transcript_path: speedTranscript, cost: { total_api_duration_ms: 15000 } }),
@@ -650,19 +667,9 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   });
   assert.strictEqual(third.status, 0, third.stderr);
   assert.match(third.stdout, /Speed 100 t\/s/);
+  assert.doesNotMatch(third.stdout, /Speed 0 t\/s/);
 
-  // 4. Idle past decay threshold -> Speed 0 t/s.
-  const decayedCache = JSON.parse(fs.readFileSync(speedCache, 'utf8'));
-  decayedCache[`speed:${sessionId}`].ts = Date.now() - 60000;
-  fs.writeFileSync(speedCache, JSON.stringify(decayedCache));
-  const fourth = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
-    input: JSON.stringify({ session_id: sessionId, transcript_path: speedTranscript, cost: { total_api_duration_ms: 15000 } }),
-    env: baseEnv(speedConfig, speedCache),
-  });
-  assert.strictEqual(fourth.status, 0, fourth.stderr);
-  assert.match(fourth.stdout, /Speed 0 t\/s/);
-
-  // 5. Missing cost.total_api_duration_ms -> falls back to transcript-timestamp span.
+  // 4. Missing cost.total_api_duration_ms -> average is --, current falls back to transcript span.
   const fallbackCache = path.join(tempDir, 'speed-fallback-cache.json');
   fs.writeFileSync(fallbackCache, '{}');
   const fallbackTranscript = path.join(tempDir, 'speed-fallback-transcript.jsonl');
@@ -687,8 +694,40 @@ async function verifyTokenOutputSpeed({ tempDir }) {
     env: baseEnv(speedConfig, fallbackCache),
   });
   assert.strictEqual(fallbackSecond.status, 0, fallbackSecond.stderr);
-  // dOut=800 over ~10s span -> ~80 tok/s (formatSpeed rounds 80 -> "80").
-  assert.match(fallbackSecond.stdout, /Speed \d+ t\/s/);
+  assert.match(fallbackSecond.stdout, /Speed \d+ t\/s · Avg -- t\/s/);
+
+  // 5. Speed shares the status line with another field: speed sits on its own trailing line.
+  const mixedConfig = path.join(tempDir, 'speed-mixed-config.json');
+  fs.writeFileSync(mixedConfig, JSON.stringify({ display: ['session', 'speed'] }, null, 2));
+  const mixedCache = path.join(tempDir, 'speed-mixed-cache.json');
+  fs.writeFileSync(mixedCache, '{}');
+  const mixedTranscript = path.join(tempDir, 'speed-mixed-transcript.jsonl');
+  const mixedSession = 'speed-mixed-session';
+  const writeMixed = (outTokens, isoTs) => {
+    fs.writeFileSync(
+      mixedTranscript,
+      `${JSON.stringify({
+        timestamp: isoTs,
+        message: { usage: { input_tokens: 1000, output_tokens: outTokens } },
+      })}\n`
+    );
+  };
+  writeMixed(400, new Date().toISOString());
+  await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: mixedSession, transcript_path: mixedTranscript, cost: { total_api_duration_ms: 4000 } }),
+    env: baseEnv(mixedConfig, mixedCache),
+  });
+  writeMixed(800, new Date().toISOString());
+  const mixed = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: mixedSession, transcript_path: mixedTranscript, cost: { total_api_duration_ms: 8000 } }),
+    env: baseEnv(mixedConfig, mixedCache),
+  });
+  assert.strictEqual(mixed.status, 0, mixed.stderr);
+  const mixedLines = mixed.stdout.trim().split('\n');
+  assert.strictEqual(mixedLines.length, 2, 'speed sits on its own line below the main fields');
+  assert.match(mixedLines[0], /Session/);
+  assert.doesNotMatch(mixedLines[0], /Speed/);
+  assert.match(mixedLines[1], /^Speed \d+ t\/s · Avg \d+ t\/s$/);
 }
 
 async function main() {

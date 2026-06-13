@@ -62,10 +62,9 @@ const CONTEXT_CACHE_TTL_MS = Number(
 );
 
 // Output-speed tuning. The status line is a fresh process each render, so speed is derived from a
-// per-session cached baseline (see resolveOutputSpeed). SPEED_IDLE_DECAY_MS is how long the last
-// measured speed is held before the segment decays to 0 when the session is idle.
-const SPEED_IDLE_DECAY_MS = Number(process.env.GLM_STATUSLINE_SPEED_IDLE_DECAY_MS || 30_000);
-// Floor for the speed denominator so a tiny ΔapiMs can't produce a multimillion tok/s spike.
+// per-session cached baseline (see resolveSpeed). When idle the last measured value is held (it
+// never decays to 0); SPEED_MIN_DENOM_S floors the denominator so a tiny ΔapiMs can't produce a
+// multimillion tok/s spike.
 const SPEED_MIN_DENOM_S = 0.1;
 // How long a per-session speed baseline is held in the cache.
 const SPEED_CACHE_TTL_MS = Number(
@@ -680,14 +679,20 @@ function resolveContextPercent(sessionContext, sessionTokens, env, config) {
   return info.percent;
 }
 
-// Resolve the output speed (tokens/sec) to display. Derives speed from the delta of cumulative
-// transcript output_tokens over the delta of cost.total_api_duration_ms (real API time, which
-// excludes idle between renders — idle can't inflate the denominator). Falls back to the
-// transcript-timestamp span, then wall-clock. The per-session baseline persists in the cache
-// (same read-hold-write pattern as resolveContextPercent). Only runs when 'speed' is displayed.
-// Returns a number (tok/s) or null (rendered as 'Speed -- t/s'). Never coerces unknown to 0.
-function resolveOutputSpeed(sessionContext, transcriptPath, config) {
-  if (!config?.display?.includes('speed')) return null;
+// Resolve the output speed for the session: { current, average } in tokens/sec (null each ->
+// rendered as '--'). Only runs when 'speed' is displayed (cost gate). Never coerces unknown to 0.
+//
+// current: derived from the delta of cumulative transcript output_tokens over the delta of
+//   cost.total_api_duration_ms (real API time, which excludes idle between renders — idle can't
+//   inflate the denominator). Falls back to the transcript-timestamp span, then wall-clock. The
+//   per-session baseline persists in the cache (same read-hold-write pattern as
+//   resolveContextPercent). On idle the last measured value is HELD (never decays to 0); it is
+//   null only before the first real measurement.
+//
+// average: cumulative output_tokens ÷ cumulative cost.total_api_duration_ms (session throughput).
+//   Computed fresh each render, no caching. null when cost is absent/0.
+function resolveSpeed(sessionContext, transcriptPath, config) {
+  if (!config?.display?.includes('speed')) return { current: null, average: null };
 
   const sessionId = String(sessionContext?.session_id || sessionContext?.sessionId || '');
   const { outputTokens, lastLineMs } = readJsonlOutputStats(transcriptPath);
@@ -695,16 +700,18 @@ function resolveOutputSpeed(sessionContext, transcriptPath, config) {
   const apiMs = Number.isFinite(apiMsRaw) ? apiMsRaw : null;
   const now = Date.now();
 
+  const average = apiMs !== null && apiMs > 0 && outputTokens > 0 ? outputTokens / (apiMs / 1000) : null;
+
   const cache = loadCache();
   const key = `speed:${sessionId}`;
   const prev = cache[key];
 
-  // First tick for this session: seed the baseline, no speed yet -> Speed -- t/s.
+  // First tick for this session: seed the baseline, no current yet -> Speed -- t/s.
   if (!prev || typeof prev.out !== 'number') {
     cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: null };
     pruneSpeedCache(cache);
     saveCache(cache);
-    return null;
+    return { current: null, average };
   }
 
   const dOut = outputTokens - prev.out;
@@ -718,20 +725,18 @@ function resolveOutputSpeed(sessionContext, transcriptPath, config) {
       denomSeconds = (now - prev.ts) / 1000;
     }
     denomSeconds = Math.max(denomSeconds, SPEED_MIN_DENOM_S);
-    const speed = dOut / denomSeconds;
-    cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: speed };
+    const current = dOut / denomSeconds;
+    cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: current };
     pruneSpeedCache(cache);
     saveCache(cache);
-    return speed;
+    return { current, average };
   }
 
-  // Idle (no new output). Seeded-but-never-measured stays honest at Speed -- t/s. Once we have a
-  // real reading, hold it, then decay to 0 past the idle threshold. Do NOT rewrite the cache —
-  // the baseline (out/apiMs/lineMs/ts) must stay intact so the next active tick computes from it,
-  // and `now - prev.ts` must keep measuring time since the last real activity.
-  if (typeof prev.shown !== 'number') return null;
-  if (now - prev.ts <= SPEED_IDLE_DECAY_MS) return prev.shown;
-  return 0;
+  // Idle (no new output). Hold the last measured value; seeded-but-never-measured stays at --.
+  // Do NOT rewrite the cache — the baseline must stay intact so the next active tick computes
+  // from it. `0` is never returned.
+  const current = typeof prev.shown === 'number' ? prev.shown : null;
+  return { current, average };
 }
 
 function tokenTotalFromUsage(usage) {
@@ -966,10 +971,11 @@ async function fetchModelUsage(env, period) {
 }
 
 function formatSpeed(value) {
-  // null/undefined mean "no reading yet" — render as -- rather than 0 (Number(null) === 0).
+  // null/undefined mean "no reading yet"; values < 1 tok/s are not a meaningful integer reading.
+  // Both render as '-- so the segment can never display 0 (Number(null) === 0 would otherwise).
   if (value === null || value === undefined) return '--';
   const n = Number(value);
-  if (!Number.isFinite(n)) return '--';
+  if (!Number.isFinite(n) || n < 1) return '--';
   if (n < 1000) return String(Math.round(n));
   if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
   return `${(n / 1_000_000).toFixed(1)}M`;
@@ -1062,7 +1068,7 @@ async function renderStatusLine(sessionContext = {}) {
     sessionContext?.transcript_path || sessionContext?.transcriptPath || sessionContext?.conversation_log_path || ''
   );
   const sessionTokens = readJsonlTokenStats(transcriptPath);
-  const speed = resolveOutputSpeed(sessionContext, transcriptPath, config);
+  const speedStats = resolveSpeed(sessionContext, transcriptPath, config);
 
   const quota = await fetchQuota(env);
   const contextPercent = resolveContextPercent(sessionContext, sessionTokens, env, config);
@@ -1085,13 +1091,24 @@ async function renderStatusLine(sessionContext = {}) {
     model: `Model ${mapClaudeModelToGlm(sessionContext, env)}`,
     effort: `Effort ${effortLevel || '--'}`,
     session: `Session ${formatTokens(sessionTokens)}`,
-    speed: `Speed ${formatSpeed(speed)} t/s`,
     day: `Day ${formatTokens(dayTokens ?? 0)}`,
     '30d': `30D ${formatTokens(monthTokens ?? 0)}`,
   };
 
-  const segments = config.display.map((item) => fields[item]).filter(Boolean);
-  return wrapSegments(segments.length ? segments : DEFAULT_DISPLAY.map((item) => fields[item]), config.maxWidth);
+  const showSpeed = config.display.includes('speed');
+  const mainSegments = config.display
+    .filter((item) => item !== 'speed')
+    .map((item) => fields[item])
+    .filter(Boolean);
+  // Fall back to DEFAULT_DISPLAY only when there's truly nothing else to show AND speed is off.
+  // (A user who selected only 'speed' gets just the speed line — no forced default fields.)
+  const effectiveMain =
+    mainSegments.length || showSpeed ? mainSegments : DEFAULT_DISPLAY.map((item) => fields[item]);
+  const mainLines = wrapSegments(effectiveMain, config.maxWidth);
+  if (!showSpeed) return mainLines;
+
+  const speedLine = `Speed ${formatSpeed(speedStats.current)} t/s · Avg ${formatSpeed(speedStats.average)} t/s`;
+  return mainLines ? `${mainLines}\n${speedLine}` : speedLine;
 }
 
 async function main() {
