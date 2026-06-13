@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.17 - 2026-06-13
+
+- Reordered the `grouped` layout rows: `model` / `effort` / `speed` is now the first row, `context` / `session` / `day` / `30d` stays in the middle, and `plan` / `5h` / `mcp` is the last row.
+- Added a GitHub Actions workflow (`.github/workflows/release.yml`) that publishes a GitHub Release named `GLM StatusLine <version>` whose body is the matching `CHANGELOG.md` entry, whenever a `vX.Y.Z` tag is pushed.
+- README now documents each field's data source (GLM / Z.ai monitor API, Claude Code session JSON, or local transcript computation).
+- Added `CHANGELOG.zh.md`, a Chinese mirror of the changelog.
+
 ## 1.2.16 - 2026-06-13
 
 - Made the single-line / grouped layout toggle in `/glm-statusline:configure` more prominent: it now renders as a radio-style two-option block (`[x] single` / `[ ] grouped`), each with a one-line description, separated from the field list by a blank line, and the input prompt now reads `l = layout`. The README configure example and skill docs were updated to match.

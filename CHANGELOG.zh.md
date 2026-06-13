@@ -2,6 +2,13 @@
 
 > 中文版，与 [CHANGELOG.md](CHANGELOG.md)（英文）一一对应。发版时两个文件需同步更新；CI 的 Release 正文目前取自英文 `CHANGELOG.md`。
 
+## 1.2.17 - 2026-06-13
+
+- 调整了分组布局的行序：`model` / `effort` / `speed` 现在是第 1 行，`context` / `session` / `day` / `30d` 居中，`plan` / `5h` / `mcp` 是最后一行。
+- 新增 GitHub Actions workflow（`.github/workflows/release.yml`）：每次推送 `vX.Y.Z` 标签时，自动发布名为 `GLM StatusLine <版本>` 的 GitHub Release，正文取自 `CHANGELOG.md` 对应条目。
+- README 新增「字段数据来源（每项怎么来的）」说明，按 GLM / Z.ai 监控 API、Claude Code 会话 JSON、本地 transcript 计算三类来源讲清每个字段。
+- 新增 `CHANGELOG.zh.md`，中文版更新日志。
+
 ## 1.2.16 - 2026-06-13
 
 - 优化了 `/glm-statusline:configure` 里单行 / 分组布局的切换提示：现在以单选样式（`[x] single` / `[ ] grouped`）展示，每个选项各带一行说明，与字段列表之间用空行分隔，输入提示改为 `l = layout`。README 的 configure 示例和相关 skill 文档同步更新。
