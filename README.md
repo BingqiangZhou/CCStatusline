@@ -99,7 +99,7 @@
 | `model` | Claude Code 当前模型映射后的 GLM 模型名 |
 | `effort` | 当前推理 effort 等级（`low` / `medium` / `high` / `xhigh` / `max`，来自 Claude Code `effort.level`） |
 | `session` | 当前会话累计 token 数 |
-| `speed` | 当前输出速度（tokens/sec，输出 token 增量 ÷ API 耗时增量；首次显示 `--`，空闲 30s 后归零；opt-in，默认不显示） |
+| `speed` | 输出速度，独占一行：`Speed <当前> t/s · Avg <会话均值> t/s`。当前速度 = 输出 token 增量 ÷ API 耗时增量，空闲时保持上次读数（不归零，首次为 `--`）；平均速度 = 会话累计输出 ÷ 累计 API 耗时。opt-in，默认不显示 |
 | `day` | 当天 GLM / Z.ai token 用量 |
 | `30d` | 近 30 天 GLM / Z.ai token 用量 |
 
@@ -329,7 +329,7 @@ pwd
 - `model`：Claude Code 当前模型映射后的 GLM 模型名。
 - `effort`：当前推理 effort 等级（Claude Code `effort.level`，模型不支持时显示 `--`）。
 - `session`：当前会话 token。
-- `speed`：当前输出速度（tokens/sec）。
+- `speed`：输出速度（当前 + 会话平均 tokens/sec），独占一行。
 - `day`：当天 token。
 - `30d`：近 30 天 token。
 
