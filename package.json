@@ -1,6 +1,6 @@
 {
   "name": "glm-statusline",
-  "version": "1.2.10",
+  "version": "1.2.11",
   "description": "Claude Code plugin packaging for a GLM status line script.",
   "private": true,
   "scripts": {

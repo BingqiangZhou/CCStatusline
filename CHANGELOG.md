@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.11 - 2026-06-13
+
+- Fixed the context bar still flashing to `0%` mid-session in some cases. Claude Code occasionally emits a literal `0` for `used_percentage` during session transitions (between turns, model switch); the previous fix only held steady across `null` readings. A reported `0` is now treated as transient when a real value is already cached for the session, and is deliberately not written to the cache so it can't poison later ticks. A genuine `0` at the very start of a session (no prior value) is still cached so the bar holds `0%` instead of flashing to `--%`.
+
 ## 1.2.10 - 2026-06-13
 
 - Added the MCP/tools quota expiry date to the MCP status line field, shown as a compact `@MM-DD` (e.g. `@06-14`) next to the MCP bar. The GLM / Z.ai API already returns the window expiry; it is now surfaced in the status line (`@--` when unavailable), and `--plan-details` shows the full date and time for the MCP window.
