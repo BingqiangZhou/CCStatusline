@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.16 - 2026-06-13
+
+- Made the single-line / grouped layout toggle in `/glm-statusline:configure` more prominent: it now renders as a radio-style two-option block (`[x] single` / `[ ] grouped`), each with a one-line description, separated from the field list by a blank line, and the input prompt now reads `l = layout`. The README configure example and skill docs were updated to match.
+
 ## 1.2.15 - 2026-06-13
 
 - Changed the `grouped` layout's field-to-row assignment: row 1 is now `plan` / `5h` / `mcp`; row 2 is `context` / `session` / `day` / `30d`; row 3 is `model` / `effort` / `speed`. (Previously row 1 held all quota fields, row 2 the conversation fields, and row 3 only `model`.) The single-line default layout is unchanged.
