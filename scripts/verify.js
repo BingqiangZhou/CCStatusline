@@ -601,6 +601,96 @@ async function verifyEffortAndContextFix({ tempDir }) {
   assert.doesNotMatch(ctxZeroHoldStatus.stdout, /Context .+ 0%/);
 }
 
+async function verifyTokenOutputSpeed({ tempDir }) {
+  const speedConfig = path.join(tempDir, 'speed-config.json');
+  fs.writeFileSync(speedConfig, JSON.stringify({ display: ['speed'] }, null, 2));
+  const speedCache = path.join(tempDir, 'speed-cache.json');
+  const speedTranscript = path.join(tempDir, 'speed-transcript.jsonl');
+  const sessionId = 'speed-session';
+
+  const writeTranscript = (outTokens, isoTs) => {
+    fs.writeFileSync(
+      speedTranscript,
+      `${JSON.stringify({
+        timestamp: isoTs,
+        message: { usage: { input_tokens: 1000, output_tokens: outTokens } },
+      })}\n`
+    );
+  };
+
+  // 1. First render seeds the baseline; no speed yet -> Speed -- t/s.
+  fs.writeFileSync(speedCache, '{}');
+  writeTranscript(200, new Date(Date.now() - 60000).toISOString());
+  const first = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: sessionId, transcript_path: speedTranscript, cost: { total_api_duration_ms: 10000 } }),
+    env: baseEnv(speedConfig, speedCache),
+  });
+  assert.strictEqual(first.status, 0, first.stderr);
+  assert.match(first.stdout, /Speed -- t\/s/);
+  const seededCache = JSON.parse(fs.readFileSync(speedCache, 'utf8'));
+  assert.ok(seededCache[`speed:${sessionId}`], 'first render should seed the speed baseline');
+  assert.strictEqual(seededCache[`speed:${sessionId}`].out, 200);
+
+  // 2. Output grew 500 tokens over 5000ms of API time -> 100 tok/s.
+  writeTranscript(700, new Date().toISOString());
+  const second = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: sessionId, transcript_path: speedTranscript, cost: { total_api_duration_ms: 15000 } }),
+    env: baseEnv(speedConfig, speedCache),
+  });
+  assert.strictEqual(second.status, 0, second.stderr);
+  assert.match(second.stdout, /Speed 100 t\/s/);
+
+  // 3. Idle (no new output), within decay window -> holds last shown value.
+  const heldCache = JSON.parse(fs.readFileSync(speedCache, 'utf8'));
+  heldCache[`speed:${sessionId}`].ts = Date.now() - 5000;
+  fs.writeFileSync(speedCache, JSON.stringify(heldCache));
+  const third = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: sessionId, transcript_path: speedTranscript, cost: { total_api_duration_ms: 15000 } }),
+    env: baseEnv(speedConfig, speedCache),
+  });
+  assert.strictEqual(third.status, 0, third.stderr);
+  assert.match(third.stdout, /Speed 100 t\/s/);
+
+  // 4. Idle past decay threshold -> Speed 0 t/s.
+  const decayedCache = JSON.parse(fs.readFileSync(speedCache, 'utf8'));
+  decayedCache[`speed:${sessionId}`].ts = Date.now() - 60000;
+  fs.writeFileSync(speedCache, JSON.stringify(decayedCache));
+  const fourth = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: sessionId, transcript_path: speedTranscript, cost: { total_api_duration_ms: 15000 } }),
+    env: baseEnv(speedConfig, speedCache),
+  });
+  assert.strictEqual(fourth.status, 0, fourth.stderr);
+  assert.match(fourth.stdout, /Speed 0 t\/s/);
+
+  // 5. Missing cost.total_api_duration_ms -> falls back to transcript-timestamp span.
+  const fallbackCache = path.join(tempDir, 'speed-fallback-cache.json');
+  fs.writeFileSync(fallbackCache, '{}');
+  const fallbackTranscript = path.join(tempDir, 'speed-fallback-transcript.jsonl');
+  const fallbackSession = 'speed-fallback-session';
+  const writeFallback = (outTokens, isoTs) => {
+    fs.writeFileSync(
+      fallbackTranscript,
+      `${JSON.stringify({
+        timestamp: isoTs,
+        message: { usage: { input_tokens: 500, output_tokens: outTokens } },
+      })}\n`
+    );
+  };
+  writeFallback(100, new Date(Date.now() - 10000).toISOString());
+  await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: fallbackSession, transcript_path: fallbackTranscript }),
+    env: baseEnv(speedConfig, fallbackCache),
+  });
+  writeFallback(900, new Date().toISOString());
+  const fallbackSecond = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: fallbackSession, transcript_path: fallbackTranscript }),
+    env: baseEnv(speedConfig, fallbackCache),
+  });
+  assert.strictEqual(fallbackSecond.status, 0, fallbackSecond.stderr);
+  // dOut=800 over ~10s span -> ~80 tok/s (formatSpeed rounds 80 -> "80").
+  assert.match(fallbackSecond.stdout, /Speed \d+ t\/s/);
+}
+
 async function main() {
   verifyProjectMetadata();
 
@@ -618,6 +708,7 @@ async function main() {
   await verifyDebugLogging(context);
   verifyInstallerWorkflow(context);
   await verifyEffortAndContextFix(context);
+  await verifyTokenOutputSpeed(context);
   console.log('All plugin verification checks passed.');
 }
 

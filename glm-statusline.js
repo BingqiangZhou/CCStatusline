@@ -61,6 +61,17 @@ const CONTEXT_CACHE_TTL_MS = Number(
   process.env.GLM_STATUSLINE_CONTEXT_CACHE_TTL_MS || 24 * 60 * 60 * 1000
 );
 
+// Output-speed tuning. The status line is a fresh process each render, so speed is derived from a
+// per-session cached baseline (see resolveOutputSpeed). SPEED_IDLE_DECAY_MS is how long the last
+// measured speed is held before the segment decays to 0 when the session is idle.
+const SPEED_IDLE_DECAY_MS = Number(process.env.GLM_STATUSLINE_SPEED_IDLE_DECAY_MS || 30_000);
+// Floor for the speed denominator so a tiny ΔapiMs can't produce a multimillion tok/s spike.
+const SPEED_MIN_DENOM_S = 0.1;
+// How long a per-session speed baseline is held in the cache.
+const SPEED_CACHE_TTL_MS = Number(
+  process.env.GLM_STATUSLINE_SPEED_CACHE_TTL_MS || 24 * 60 * 60 * 1000
+);
+
 const PLAN_KEYS = [
   'planName',
   'packageName',
@@ -226,6 +237,16 @@ function pruneContextCache(cache) {
   const now = Date.now();
   for (const key of Object.keys(cache)) {
     if (key.startsWith('context:') && now - (cache[key]?.ts || 0) > CONTEXT_CACHE_TTL_MS) {
+      delete cache[key];
+    }
+  }
+}
+
+// Drop stale per-session speed baselines so the cache file can't grow unbounded.
+function pruneSpeedCache(cache) {
+  const now = Date.now();
+  for (const key of Object.keys(cache)) {
+    if (key.startsWith('speed:') && now - (cache[key]?.ts || 0) > SPEED_CACHE_TTL_MS) {
       delete cache[key];
     }
   }
@@ -659,6 +680,60 @@ function resolveContextPercent(sessionContext, sessionTokens, env, config) {
   return info.percent;
 }
 
+// Resolve the output speed (tokens/sec) to display. Derives speed from the delta of cumulative
+// transcript output_tokens over the delta of cost.total_api_duration_ms (real API time, which
+// excludes idle between renders — idle can't inflate the denominator). Falls back to the
+// transcript-timestamp span, then wall-clock. The per-session baseline persists in the cache
+// (same read-hold-write pattern as resolveContextPercent). Only runs when 'speed' is displayed.
+// Returns a number (tok/s) or null (rendered as 'Speed -- t/s'). Never coerces unknown to 0.
+function resolveOutputSpeed(sessionContext, transcriptPath, config) {
+  if (!config?.display?.includes('speed')) return null;
+
+  const sessionId = String(sessionContext?.session_id || sessionContext?.sessionId || '');
+  const { outputTokens, lastLineMs } = readJsonlOutputStats(transcriptPath);
+  const apiMsRaw = Number(sessionContext?.cost?.total_api_duration_ms);
+  const apiMs = Number.isFinite(apiMsRaw) ? apiMsRaw : null;
+  const now = Date.now();
+
+  const cache = loadCache();
+  const key = `speed:${sessionId}`;
+  const prev = cache[key];
+
+  // First tick for this session: seed the baseline, no speed yet -> Speed -- t/s.
+  if (!prev || typeof prev.out !== 'number') {
+    cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: null };
+    pruneSpeedCache(cache);
+    saveCache(cache);
+    return null;
+  }
+
+  const dOut = outputTokens - prev.out;
+  if (dOut > 0) {
+    let denomSeconds;
+    if (apiMs !== null && typeof prev.apiMs === 'number' && apiMs > prev.apiMs) {
+      denomSeconds = (apiMs - prev.apiMs) / 1000;
+    } else if (lastLineMs !== null && typeof prev.lineMs === 'number' && lastLineMs > prev.lineMs) {
+      denomSeconds = (lastLineMs - prev.lineMs) / 1000;
+    } else {
+      denomSeconds = (now - prev.ts) / 1000;
+    }
+    denomSeconds = Math.max(denomSeconds, SPEED_MIN_DENOM_S);
+    const speed = dOut / denomSeconds;
+    cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: speed };
+    pruneSpeedCache(cache);
+    saveCache(cache);
+    return speed;
+  }
+
+  // Idle (no new output). Seeded-but-never-measured stays honest at Speed -- t/s. Once we have a
+  // real reading, hold it, then decay to 0 past the idle threshold. Do NOT rewrite the cache —
+  // the baseline (out/apiMs/lineMs/ts) must stay intact so the next active tick computes from it,
+  // and `now - prev.ts` must keep measuring time since the last real activity.
+  if (typeof prev.shown !== 'number') return null;
+  if (now - prev.ts <= SPEED_IDLE_DECAY_MS) return prev.shown;
+  return 0;
+}
+
 function tokenTotalFromUsage(usage) {
   if (!usage || typeof usage !== 'object') return 0;
   const keys = [
@@ -692,6 +767,30 @@ function tokenTotalFromObject(obj) {
   return total;
 }
 
+function outputTokensFromUsage(usage) {
+  if (!usage || typeof usage !== 'object') return 0;
+  const keys = ['output_tokens', 'outputTokens', 'completion_tokens', 'completionTokens'];
+  let total = 0;
+  for (const key of keys) {
+    const value = Number(usage[key]);
+    if (Number.isFinite(value) && value > 0) total += value;
+  }
+  return total;
+}
+
+function outputTokensFromObject(obj) {
+  if (!obj || typeof obj !== 'object') return 0;
+  let total = 0;
+  if (obj.usage && typeof obj.usage === 'object') total += outputTokensFromUsage(obj.usage);
+  if (obj.message?.usage && typeof obj.message.usage === 'object') {
+    total += outputTokensFromUsage(obj.message.usage);
+  }
+  if (obj.response?.usage && typeof obj.response.usage === 'object') {
+    total += outputTokensFromUsage(obj.response.usage);
+  }
+  return total;
+}
+
 function lineTimestamp(obj, fallbackMs) {
   const raw = obj?.timestamp || obj?.created_at || obj?.createdAt || obj?.message?.timestamp;
   const ms = raw ? new Date(raw).getTime() : NaN;
@@ -719,6 +818,33 @@ function readJsonlTokenStats(filePath, options = {}) {
     return total;
   } catch (_) {
     return 0;
+  }
+}
+
+// One pass over the transcript JSONL: sum output tokens and capture the most-recent line
+// timestamp. Mirrors readJsonlTokenStats but isolates output_tokens (for speed) and returns the
+// last-line timestamp (a fallback denominator source when cost.total_api_duration_ms is absent).
+function readJsonlOutputStats(filePath) {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return { outputTokens: 0, lastLineMs: null };
+    const stat = fs.statSync(filePath);
+    const content = fs.readFileSync(filePath, 'utf8');
+    let outputTokens = 0;
+    let lastLineMs = null;
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const obj = JSON.parse(line);
+        const ts = lineTimestamp(obj, stat.mtimeMs);
+        outputTokens += outputTokensFromObject(obj);
+        if (lastLineMs === null || ts > lastLineMs) lastLineMs = ts;
+      } catch (_) {
+        // Ignore malformed jsonl lines.
+      }
+    }
+    return { outputTokens, lastLineMs };
+  } catch (_) {
+    return { outputTokens: 0, lastLineMs: null };
   }
 }
 
@@ -839,6 +965,16 @@ async function fetchModelUsage(env, period) {
   }
 }
 
+function formatSpeed(value) {
+  // null/undefined mean "no reading yet" — render as -- rather than 0 (Number(null) === 0).
+  if (value === null || value === undefined) return '--';
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '--';
+  if (n < 1000) return String(Math.round(n));
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
 function formatLimitLine(label, detail, options = {}) {
   const percent = Number.isFinite(detail?.percent) ? `${detail.percent}%` : 'unavailable';
   const usage =
@@ -926,6 +1062,7 @@ async function renderStatusLine(sessionContext = {}) {
     sessionContext?.transcript_path || sessionContext?.transcriptPath || sessionContext?.conversation_log_path || ''
   );
   const sessionTokens = readJsonlTokenStats(transcriptPath);
+  const speed = resolveOutputSpeed(sessionContext, transcriptPath, config);
 
   const quota = await fetchQuota(env);
   const contextPercent = resolveContextPercent(sessionContext, sessionTokens, env, config);
@@ -948,6 +1085,7 @@ async function renderStatusLine(sessionContext = {}) {
     model: `Model ${mapClaudeModelToGlm(sessionContext, env)}`,
     effort: `Effort ${effortLevel || '--'}`,
     session: `Session ${formatTokens(sessionTokens)}`,
+    speed: `Speed ${formatSpeed(speed)} t/s`,
     day: `Day ${formatTokens(dayTokens ?? 0)}`,
     '30d': `30D ${formatTokens(monthTokens ?? 0)}`,
   };
