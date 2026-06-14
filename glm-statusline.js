@@ -719,6 +719,22 @@ function resolveSpeed(sessionContext, transcriptPath, config) {
     return { current: null, average };
   }
 
+  // Session-reset / transition guard. The baseline is keyed by session_id, but /clear (and other
+  // transitions — /compact, session restore) can briefly hand the seed tick a stale larger
+  // cumulative output count (e.g. a new session_id whose transcript_path still resolves to the
+  // previous session's transcript). That poisons the baseline: the new session's growing count can
+  // never exceed it, so dOut stays <= 0 and `current` freezes at -- for the rest of the session.
+  // Cumulative output only ever grows within a real session, so a positive count below the cached
+  // baseline is an unambiguous reset — re-seed from the current reading and let the next tick
+  // measure a real delta. (The `> 0` check avoids tripping on a transient read failure, where an
+  // unreadable transcript legitimately returns 0.)
+  if (outputTokens > 0 && outputTokens < prev.out) {
+    cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: null };
+    pruneSpeedCache(cache);
+    saveCache(cache);
+    return { current: null, average };
+  }
+
   const dOut = outputTokens - prev.out;
   if (dOut > 0) {
     let denomSeconds;

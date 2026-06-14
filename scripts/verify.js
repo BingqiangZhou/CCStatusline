@@ -738,6 +738,50 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   assert.match(mixedLines[0], /Session/);
   assert.doesNotMatch(mixedLines[0], /Speed/);
   assert.match(mixedLines[1], /^Speed \d+ t\/s · Avg \d+ t\/s$/);
+
+  // 6. /clear-style reset: cumulative output drops below the cached baseline (new session under a
+  //    reused/lagging session_id, or a seed tick that captured a stale larger transcript). Without
+  //    the guard the baseline stays poisoned and `current` freezes at -- for the rest of the
+  //    session; with it, the baseline re-seeds and the next growth tick measures a real delta.
+  const resetCache = path.join(tempDir, 'speed-reset-cache.json');
+  fs.writeFileSync(resetCache, '{}');
+  const resetTranscript = path.join(tempDir, 'speed-reset-transcript.jsonl');
+  const resetSession = 'speed-reset-session';
+  const writeReset = (outTokens, isoTs) => {
+    fs.writeFileSync(
+      resetTranscript,
+      `${JSON.stringify({ timestamp: isoTs, message: { usage: { input_tokens: 1000, output_tokens: outTokens } } })}\n`
+    );
+  };
+  // Seed a poisoned large baseline (simulates a seed tick that read the previous session's transcript).
+  writeReset(10000, new Date(Date.now() - 60000).toISOString());
+  await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: resetSession, transcript_path: resetTranscript, cost: { total_api_duration_ms: 20000 } }),
+    env: baseEnv(speedConfig, resetCache),
+  });
+  let resetCacheState = JSON.parse(fs.readFileSync(resetCache, 'utf8'));
+  assert.strictEqual(resetCacheState[`speed:${resetSession}`].out, 10000);
+  // /clear: cumulative output drops to a small new-session value -> re-seed.
+  writeReset(50, new Date(Date.now() - 5000).toISOString());
+  const resetDrop = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: resetSession, transcript_path: resetTranscript, cost: { total_api_duration_ms: 2000 } }),
+    env: baseEnv(speedConfig, resetCache),
+  });
+  assert.strictEqual(resetDrop.status, 0, resetDrop.stderr);
+  assert.match(resetDrop.stdout, /Speed -- t\/s · Avg 25 t\/s/); // avg = 50 / (2000/1000) = 25
+  resetCacheState = JSON.parse(fs.readFileSync(resetCache, 'utf8'));
+  assert.strictEqual(resetCacheState[`speed:${resetSession}`].out, 50);
+  assert.strictEqual(resetCacheState[`speed:${resetSession}`].shown, null);
+  // New session grows: a real current must be measured (not frozen at --).
+  writeReset(160, new Date().toISOString());
+  const resetGrowth = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: resetSession, transcript_path: resetTranscript, cost: { total_api_duration_ms: 4000 } }),
+    env: baseEnv(speedConfig, resetCache),
+  });
+  assert.strictEqual(resetGrowth.status, 0, resetGrowth.stderr);
+  // dOut = 160-50 = 110 over ΔapiMs (4000-2000)/1000 = 2s -> 55; avg = 160/4 = 40.
+  assert.match(resetGrowth.stdout, /Speed 55 t\/s · Avg 40 t\/s/);
+  assert.doesNotMatch(resetGrowth.stdout, /Speed -- t\/s/);
 }
 
 async function verifyGroupedLayout({ tempDir }) {
