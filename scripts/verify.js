@@ -658,14 +658,15 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   assert.match(zeroStatus.stdout, /Speed -- t\/s · Avg -- t\/s/);
   assert.doesNotMatch(zeroStatus.stdout, /Avg 0 t\/s/);
 
-  // 2. Output grew 500 tokens over 5000ms API time -> current 100; avg = 700/15 ~ 47 tok/s.
+  // 2. Output grew 500 tokens over 5000ms API time -> current 100. Avg is anchored since the
+  //    first tick (out0=200, api0=10000), so avg = (700-200)/((15000-10000)/1000) = 500/5 = 100.
   writeTranscript(700, new Date().toISOString());
   const second = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: sessionId, transcript_path: speedTranscript, cost: { total_api_duration_ms: 15000 } }),
     env: baseEnv(speedConfig, speedCache),
   });
   assert.strictEqual(second.status, 0, second.stderr);
-  assert.match(second.stdout, /Speed 100 t\/s · Avg 47 t\/s/);
+  assert.match(second.stdout, /Speed 100 t\/s · Avg 100 t\/s/);
 
   // 3. Idle holds the last value even when the baseline ts is long stale (v2: no decay to 0).
   const heldCache = JSON.parse(fs.readFileSync(speedCache, 'utf8'));
@@ -779,9 +780,40 @@ async function verifyTokenOutputSpeed({ tempDir }) {
     env: baseEnv(speedConfig, resetCache),
   });
   assert.strictEqual(resetGrowth.status, 0, resetGrowth.stderr);
-  // dOut = 160-50 = 110 over ΔapiMs (4000-2000)/1000 = 2s -> 55; avg = 160/4 = 40.
-  assert.match(resetGrowth.stdout, /Speed 55 t\/s · Avg 40 t\/s/);
+  // dOut = 160-50 = 110 over ΔapiMs (4000-2000)/1000 = 2s -> 55. Avg is anchored since the reset
+  // re-seed (out0=50, api0=2000): avg = (160-50)/((4000-2000)/1000) = 110/2 = 55.
+  assert.match(resetGrowth.stdout, /Speed 55 t\/s · Avg 55 t\/s/);
   assert.doesNotMatch(resetGrowth.stdout, /Speed -- t\/s/);
+
+  // 7. cost.total_api_duration_ms does NOT reset on /clear — Claude Code carries a process-lifetime
+  //    total into the new session, so the absolute average (out / totalApi) is depressed by foreign
+  //    API time that has nothing to do with this session's output. Avg must anchor at this session's
+  //    first tick (out0/api0) so the carried-over base cancels in both numerator and denominator.
+  //    Seed tick already sees api0 = 180000 ms (foreign base); a 1000-token / 5 s real increment
+  //    must read Avg ~200 (== current), NOT the depressed ~7 the absolute formula (1300/185) yields.
+  const carryCache = path.join(tempDir, 'speed-carry-cache.json');
+  fs.writeFileSync(carryCache, '{}');
+  const carryTranscript = path.join(tempDir, 'speed-carry-transcript.jsonl');
+  const carrySession = 'speed-carry-session';
+  const writeCarry = (outTokens, isoTs) => {
+    fs.writeFileSync(
+      carryTranscript,
+      `${JSON.stringify({ timestamp: isoTs, message: { usage: { input_tokens: 1000, output_tokens: outTokens } } })}\n`
+    );
+  };
+  writeCarry(300, new Date(Date.now() - 60000).toISOString());
+  await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: carrySession, transcript_path: carryTranscript, cost: { total_api_duration_ms: 180000 } }),
+    env: baseEnv(speedConfig, carryCache),
+  });
+  writeCarry(1300, new Date().toISOString());
+  const carrySecond = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: carrySession, transcript_path: carryTranscript, cost: { total_api_duration_ms: 185000 } }),
+    env: baseEnv(speedConfig, carryCache),
+  });
+  assert.strictEqual(carrySecond.status, 0, carrySecond.stderr);
+  assert.match(carrySecond.stdout, /Speed 200 t\/s · Avg 200 t\/s/);
+  assert.doesNotMatch(carrySecond.stdout, /Avg [1-9] t\/s/); // not the depressed single-digit absolute
 }
 
 async function verifyGroupedLayout({ tempDir }) {

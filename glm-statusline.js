@@ -694,8 +694,21 @@ function resolveContextPercent(sessionContext, sessionTokens, env, config) {
 //   resolveContextPercent). On idle the last measured value is HELD (never decays to 0); it is
 //   null only before the first real measurement.
 //
-// average: cumulative output_tokens ÷ cumulative cost.total_api_duration_ms (session throughput).
-//   Computed fresh each render, no caching. null when cost is absent/0.
+// average: session throughput since the FIRST observed tick — (out - out0) / ((apiMs - api0)/1000),
+//   where out0/api0 are seeded at this session_id's first tick (and re-seeded on a reset). Anchoring
+//   both terms together makes foreign API time carried into the session by
+//   cost.total_api_duration_ms (which /clear does NOT reset — it's a process-lifetime accumulator)
+//   cancel, instead of depressing the average. Before the first delta exists (first tick / right
+//   after a reset re-seed) it falls back to the absolute cumulative ratio out / (apiMs/1000) so the
+//   segment never shows a bare '--'. null when cost is absent/0.
+function anchoredAverage(outputTokens, apiMs, prev) {
+  if (!prev || typeof prev.out0 !== 'number' || typeof prev.apiMs0 !== 'number') return null;
+  const dOut = outputTokens - prev.out0;
+  const dApiMs = apiMs != null ? apiMs - prev.apiMs0 : null;
+  if (dOut > 0 && dApiMs != null && dApiMs > 0) return dOut / (dApiMs / 1000);
+  return null;
+}
+
 function resolveSpeed(sessionContext, transcriptPath, config) {
   if (!config?.display?.includes('speed')) return { current: null, average: null };
 
@@ -713,7 +726,7 @@ function resolveSpeed(sessionContext, transcriptPath, config) {
 
   // First tick for this session: seed the baseline, no current yet -> Speed -- t/s.
   if (!prev || typeof prev.out !== 'number') {
-    cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: null };
+    cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: null, out0: outputTokens, apiMs0: apiMs };
     pruneSpeedCache(cache);
     saveCache(cache);
     return { current: null, average };
@@ -729,7 +742,7 @@ function resolveSpeed(sessionContext, transcriptPath, config) {
   // measure a real delta. (The `> 0` check avoids tripping on a transient read failure, where an
   // unreadable transcript legitimately returns 0.)
   if (outputTokens > 0 && outputTokens < prev.out) {
-    cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: null };
+    cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: null, out0: outputTokens, apiMs0: apiMs };
     pruneSpeedCache(cache);
     saveCache(cache);
     return { current: null, average };
@@ -747,17 +760,19 @@ function resolveSpeed(sessionContext, transcriptPath, config) {
     }
     denomSeconds = Math.max(denomSeconds, SPEED_MIN_DENOM_S);
     const current = dOut / denomSeconds;
-    cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: current };
+    cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: current, out0: prev.out0, apiMs0: prev.apiMs0 };
     pruneSpeedCache(cache);
     saveCache(cache);
-    return { current, average };
+    const anchored = anchoredAverage(outputTokens, apiMs, prev);
+    return { current, average: anchored != null ? anchored : average };
   }
 
   // Idle (no new output). Hold the last measured value; seeded-but-never-measured stays at --.
   // Do NOT rewrite the cache — the baseline must stay intact so the next active tick computes
   // from it. `0` is never returned.
   const current = typeof prev.shown === 'number' ? prev.shown : null;
-  return { current, average };
+  const anchored = anchoredAverage(outputTokens, apiMs, prev);
+  return { current, average: anchored != null ? anchored : average };
 }
 
 function tokenTotalFromUsage(usage) {
