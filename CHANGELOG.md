@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.20 - 2026-06-14
+
+- Fixed the `speed` field's `Avg` reading being depressed after `/clear`. `cost.total_api_duration_ms` is a Claude Code process-lifetime accumulator that `/clear` does not reset — the new session inherits the prior session's accumulated API time, which dragged down the absolute average (`out / totalApi`) while leaving `current` (delta-based) correct. Proven by a session whose transcript spanned 357 s yet reported 1682 s of API time — 4.7× its own wall-clock, impossible without carry-over. `Avg` is now anchored at the session's first observed tick, `(out - out0) / ((apiMs - apiMs0)/1000)`, with `out0`/`apiMs0` seeded alongside the speed baseline and re-seeded on reset, so the carried-over base cancels. The first tick / right after a reset still falls back to the absolute ratio (no delta yet), so the segment never shows a bare `--`.
+
 ## 1.2.19 - 2026-06-14
 
 - Fixed the `speed` field freezing at `--` for the rest of a session after `/clear` (and other transitions — `/compact`, session restore). A transition can briefly hand the seed tick a stale larger cumulative output count (a new `session_id` whose `transcript_path` still resolves to the previous session's transcript), which poisoned the per-session baseline — the new session's growing count could never exceed it. Since cumulative output only ever grows within a real session, a positive count below the cached baseline is now treated as an unambiguous reset: the baseline re-seeds from the current reading and `current` returns to `--` until the next real delta. The `> 0` guard avoids tripping on a transient read failure (an unreadable transcript returns 0).
