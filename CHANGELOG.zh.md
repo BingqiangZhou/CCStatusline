@@ -2,6 +2,10 @@
 
 > 中文版，与 [CHANGELOG.md](CHANGELOG.md)（英文）一一对应。发版时两个文件需同步更新；CI 的 Release 正文目前取自英文 `CHANGELOG.md`。
 
+## 1.2.19 - 2026-06-14
+
+- 修复了 `/clear`（以及 `/compact`、会话恢复等切换）后 `speed` 字段在会话剩余时间里一直冻结在 `--` 的问题。切换瞬间可能让首次采样拿到一个陈旧的、更大的累计输出值（新 `session_id` 的 `transcript_path` 仍指向上一会话的 transcript），从而污染按会话缓存的速度基线——新会话不断增长的值永远超不过它。鉴于真实会话内累计输出只会增长，现在把「正值且小于缓存基线」视为明确的会话重置：基线从当前读数重新开始，`current` 回到 `--` 直到下一次真实增量。`> 0` 的判断避免在瞬时读取失败（transcript 读不出时返回 0）时误触发。
+
 ## 1.2.18 - 2026-06-13
 
 - 默认布局从 `single` 改为 `grouped`：全新配置（不写 `layout` 键）现在直接渲染成分类多行（model/effort/speed · context/session/day/30d · plan/5h/mcp）。设 `"layout": "single"` 可切回单行布局。单行布局的其它行为不变。

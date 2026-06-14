@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.19 - 2026-06-14
+
+- Fixed the `speed` field freezing at `--` for the rest of a session after `/clear` (and other transitions — `/compact`, session restore). A transition can briefly hand the seed tick a stale larger cumulative output count (a new `session_id` whose `transcript_path` still resolves to the previous session's transcript), which poisoned the per-session baseline — the new session's growing count could never exceed it. Since cumulative output only ever grows within a real session, a positive count below the cached baseline is now treated as an unambiguous reset: the baseline re-seeds from the current reading and `current` returns to `--` until the next real delta. The `> 0` guard avoids tripping on a transient read failure (an unreadable transcript returns 0).
+
 ## 1.2.18 - 2026-06-13
 
 - Changed the default status line layout from `single` to `grouped`: a fresh config (no `layout` key) now renders the category rows (model/effort/speed · context/session/day/30d · plan/5h/mcp). Set `"layout": "single"` to opt back into the one-line layout. Single-line behavior is otherwise unchanged.
