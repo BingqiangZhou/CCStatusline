@@ -52,7 +52,7 @@
 | `model` | Claude Code 当前模型映射后的 GLM 模型名 |
 | `effort` | 当前推理 effort 等级（`low` / `medium` / `high` / `xhigh` / `max`，来自 Claude Code `effort.level`） |
 | `session` | 当前会话累计 token 数 |
-| `speed` | 输出速度：`Speed <当前> t/s · Avg <会话均值> t/s`。在 `single` 布局下独占一行；在 `grouped`（默认）布局下并入所在分组行（与 `model`、`effort` 同行）。当前速度 = 输出 token 增量 ÷ API 耗时增量，空闲时保持上次读数（不归零，首次为 `--`）；平均速度 = 自本会话首次观测以来的吞吐（锚定首 tick 的输出增量 ÷ API 耗时增量），以抵消 `/clear` 后 `cost.total_api_duration_ms` 带过来的旧 API 时间、不被压低。opt-in，默认不显示 |
+| `speed` | 输出速度：`Speed <当前> t/s · Avg <会话均值> t/s`。在 `single` 布局下独占一行；在 `grouped`（默认）布局下并入所在分组行（与 `model`、`effort` 同行）。当前速度 = 输出 token 增量 ÷ API 耗时增量，空闲时保持上次读数；拿不到可用瞬时读数时（例如缓存被并发写坏、基线丢失）回落到会话平均速度，避免卡在 `--`；平均速度 = 自本会话首次观测以来的吞吐（锚定首 tick 的输出增量 ÷ API 耗时增量），以抵消 `/clear` 后 `cost.total_api_duration_ms` 带过来的旧 API 时间、不被压低。opt-in，默认不显示 |
 | `day` | 当天 GLM / Z.ai token 用量 |
 | `30d` | 近 30 天 GLM / Z.ai token 用量 |
 
@@ -108,8 +108,8 @@ GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░�
 
 **本地从 transcript 计算**（不请求任何远端接口）：
 
-- `session`：累加 transcript 文件（会话 JSON 里的 `transcript_path`，JSONL）中每条 `usage` 的 token 数。
-- `speed`：当前速度 = 输出 token 增量 ÷ API 耗时增量（用 `cost.total_api_duration_ms` 的增量做分母——真实 API 时间，渲染之间的空闲不会被算进去，不会虚高）；平均速度 = 自本会话首 tick 锚定的输出增量 ÷ API 耗时增量（`(out - out0) / ((apiMs - api0)/1000)`）。Claude Code 的 `cost.total_api_duration_ms` 是进程级累加器，`/clear` 不会归零、会把上个会话的 API 时间带进新会话；锚定首 tick 让这部分"外来"时间在分子分母里同时抵消，避免均值被压低（首 tick / 重置后那一帧还没有增量，回退到累计比值，不会裸 `--`）。按 `session_id` 缓存，空闲时保持上次读数（不归零，首次为 `--`）。
+- `session`：累加 transcript 文件（会话 JSON 里的 `transcript_path`，JSONL）中每条 `usage` 的 token 数（按 `message.id` 去重——一条助手消息在 transcript 里按内容块拆成多行，每行都带完整 `usage`，不去重会重复计数）。
+- `speed`：当前速度 = 输出 token 增量 ÷ API 耗时增量（用 `cost.total_api_duration_ms` 的增量做分母——真实 API 时间，渲染之间的空闲不会被算进去，不会虚高）；平均速度 = 自本会话首 tick 锚定的输出增量 ÷ API 耗时增量（`(out - out0) / ((apiMs - api0)/1000)`）。Claude Code 的 `cost.total_api_duration_ms` 是进程级累加器，`/clear` 不会归零、会把上个会话的 API 时间带进新会话；锚定首 tick 让这部分"外来"时间在分子分母里同时抵消，避免均值被压低（首 tick / 重置后那一帧还没有增量，回退到累计比值，不会裸 `--`）。按 `session_id` 缓存，空闲时保持上次读数；拿不到可用瞬时读数时（例如缓存被并发写坏、基线丢失）回落到会话平均速度，避免卡在 `--`。
 
 ### 2. GLM / Z.ai API 用量读取
 

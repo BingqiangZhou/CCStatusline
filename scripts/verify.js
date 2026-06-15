@@ -814,6 +814,77 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   assert.strictEqual(carrySecond.status, 0, carrySecond.stderr);
   assert.match(carrySecond.stdout, /Speed 200 t\/s · Avg 200 t\/s/);
   assert.doesNotMatch(carrySecond.stdout, /Avg [1-9] t\/s/); // not the depressed single-digit absolute
+
+  // 8. Shared-cache loss during idle (e.g. corruption from concurrent projects writing the one
+  //    cache file). The seed re-establishes a baseline with shown:null; the following idle tick
+  //    must fall back to the session average instead of stranding at '--' (the idle branch never
+  //    rewrites, so without the fallback it would stay '--' until the next message).
+  const lossCache = path.join(tempDir, 'speed-loss-cache.json');
+  const lossTranscript = path.join(tempDir, 'speed-loss-transcript.jsonl');
+  const lossSession = 'speed-loss-session';
+  const writeLoss = (outTokens, isoTs) => {
+    fs.writeFileSync(
+      lossTranscript,
+      `${JSON.stringify({ timestamp: isoTs, message: { usage: { input_tokens: 1000, output_tokens: outTokens } } })}\n`
+    );
+  };
+  writeLoss(600, new Date().toISOString());
+  // Simulate a concurrent garbled write wiping the entry before this session's first render.
+  fs.writeFileSync(lossCache, 'this is not json {'); // loadCache -> {} on parse error
+  const lossReSeed = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: lossSession, transcript_path: lossTranscript, cost: { total_api_duration_ms: 30000 } }),
+    env: baseEnv(speedConfig, lossCache),
+  });
+  assert.strictEqual(lossReSeed.status, 0, lossReSeed.stderr);
+  assert.match(lossReSeed.stdout, /Speed -- t\/s · Avg 20 t\/s/); // seed tick: honest '--', avg = 600/30
+  // Idle tick: shown is null -> falls back to the absolute average (600/30 = 20), NOT '--'.
+  const lossIdle = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: lossSession, transcript_path: lossTranscript, cost: { total_api_duration_ms: 30000 } }),
+    env: baseEnv(speedConfig, lossCache),
+  });
+  assert.strictEqual(lossIdle.status, 0, lossIdle.stderr);
+  assert.match(lossIdle.stdout, /Speed 20 t\/s · Avg 20 t\/s/);
+  assert.doesNotMatch(lossIdle.stdout, /Speed -- t\/s/);
+
+  // 9. Atomic cache write: no temp file leaks after a write, and the cache is valid JSON.
+  const atomicDir = path.join(tempDir, 'speed-atomic');
+  fs.mkdirSync(atomicDir, { recursive: true });
+  const atomicCache = path.join(atomicDir, 'cache.json');
+  fs.writeFileSync(atomicCache, '{}');
+  const atomicTranscript = path.join(tempDir, 'speed-atomic-transcript.jsonl');
+  fs.writeFileSync(
+    atomicTranscript,
+    `${JSON.stringify({ timestamp: new Date().toISOString(), message: { usage: { input_tokens: 1, output_tokens: 10 } } })}\n`
+  );
+  const atomicRun = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: 'speed-atomic-session', transcript_path: atomicTranscript, cost: { total_api_duration_ms: 1000 } }),
+    env: baseEnv(speedConfig, atomicCache),
+  });
+  assert.strictEqual(atomicRun.status, 0, atomicRun.stderr);
+  const leakedTemps = fs.readdirSync(atomicDir).filter((f) => f.startsWith('cache.json.tmp.'));
+  assert.strictEqual(leakedTemps.length, 0, `temp file leaked: ${leakedTemps.join(', ')}`);
+  JSON.parse(fs.readFileSync(atomicCache, 'utf8')); // throws if the cache isn't valid JSON
+
+  // 10. Dedup: one assistant message spanning 3 content-block lines (thinking/text/tool_use), each
+  //     carrying the full message.usage, must count its output_tokens ONCE (1000), not 3x (3000).
+  const dedupCache = path.join(tempDir, 'speed-dedup-cache.json');
+  fs.writeFileSync(dedupCache, '{}');
+  const dedupTranscript = path.join(tempDir, 'speed-dedup-transcript.jsonl');
+  const dedupMsgId = 'msg_dedup_test_001';
+  const dedupLine = (contentType) =>
+    `${JSON.stringify({
+      timestamp: new Date().toISOString(),
+      message: { id: dedupMsgId, role: 'assistant', content: [{ type: contentType }], usage: { input_tokens: 1000, output_tokens: 1000 } },
+    })}`;
+  fs.writeFileSync(dedupTranscript, `${dedupLine('thinking')}\n${dedupLine('text')}\n${dedupLine('tool_use')}\n`);
+  const dedupRun = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({ session_id: 'speed-dedup-session', transcript_path: dedupTranscript, cost: { total_api_duration_ms: 10000 } }),
+    env: baseEnv(speedConfig, dedupCache),
+  });
+  assert.strictEqual(dedupRun.status, 0, dedupRun.stderr);
+  // Avg = outputTokens / (apiMs/1000). Deduped outputTokens=1000 -> Avg 100. Over-counted would be 300.
+  assert.match(dedupRun.stdout, /Avg 100 t\/s/);
+  assert.doesNotMatch(dedupRun.stdout, /Avg 300 t\/s/);
 }
 
 async function verifyGroupedLayout({ tempDir }) {

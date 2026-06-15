@@ -223,9 +223,19 @@ function loadCache() {
 }
 
 function saveCache(cache) {
+  // Atomic write (temp file + rename). Several Claude Code projects share this one cache file and
+  // every status-line render rewrites it. A plain in-place writeFileSync can interleave with a
+  // concurrent writer and leave a half-written file; that then fails JSON.parse in loadCache and
+  // wipes every entry — including the per-session speed baseline (see resolveSpeed), which the idle
+  // branch never rewrites, so it strands Speed at '--'. rename is atomic on POSIX/darwin, so a
+  // reader always sees a complete file. The temp is per-PID so concurrent writers don't clobber
+  // each other's temp.
   try {
-    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+    const dir = path.dirname(CACHE_FILE);
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = `${CACHE_FILE}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(cache, null, 2));
+    fs.renameSync(tmp, CACHE_FILE);
   } catch (err) {
     debugLog(`cannot write cache ${CACHE_FILE}`, err);
     // Ignore cache write errors; statusLine should never break Claude Code.
@@ -767,11 +777,20 @@ function resolveSpeed(sessionContext, transcriptPath, config) {
     return { current, average: anchored != null ? anchored : average };
   }
 
-  // Idle (no new output). Hold the last measured value; seeded-but-never-measured stays at --.
-  // Do NOT rewrite the cache — the baseline must stay intact so the next active tick computes
-  // from it. `0` is never returned.
-  const current = typeof prev.shown === 'number' ? prev.shown : null;
+  // Idle (no new output). Prefer the last measured reading when usable (>= 1 t/s — the threshold
+  // below which formatSpeed renders '--'); otherwise fall back to a valid average so a lost
+  // baseline (e.g. shared-cache corruption from concurrent projects, which the idle branch never
+  // rewrites) doesn't strand Speed at '--'. The anchored average is null in exactly this no-growth
+  // condition, so the fallback is the absolute cumulative ratio outputTokens/(apiMs/1000) — valid
+  // only when the seed baseline is self-consistent (one process lifetime): out0===0, or out0>0
+  // with apiMs0>0. A resumed session (out0>0, apiMs0 0/null) has a mismatched old-transcript /
+  // new-process base -> leave '--'. Do NOT rewrite the cache — the baseline must stay intact so
+  // the next active tick computes from it. `0` is never returned.
   const anchored = anchoredAverage(outputTokens, apiMs, prev);
+  const seedConsistent = prev.out0 === 0 || (typeof prev.apiMs0 === 'number' && prev.apiMs0 > 0);
+  const validAvg = anchored != null ? anchored : (seedConsistent ? average : null);
+  const heldUsable = typeof prev.shown === 'number' && prev.shown >= 1;
+  const current = heldUsable ? prev.shown : validAvg;
   return { current, average: anchored != null ? anchored : average };
 }
 
@@ -845,13 +864,22 @@ function readJsonlTokenStats(filePath, options = {}) {
     const stat = fs.statSync(filePath);
     const content = fs.readFileSync(filePath, 'utf8');
     let total = 0;
+    // Dedup by message.id — see readJsonlOutputStats: a message spans one line per content block,
+    // each carrying the full message.usage, so summing naively over-counts ~N×.
+    const counted = new Set();
     for (const line of content.split('\n')) {
       if (!line.trim()) continue;
       try {
         const obj = JSON.parse(line);
         const ts = lineTimestamp(obj, stat.mtimeMs);
         if (ts < startMs || ts >= endMs) continue;
-        total += tokenTotalFromObject(obj);
+        const id = obj.message?.id;
+        if (id && counted.has(id)) continue;
+        const add = tokenTotalFromObject(obj);
+        if (add > 0) {
+          if (id) counted.add(id);
+          total += add;
+        }
       } catch (_) {
         // Ignore malformed jsonl lines.
       }
@@ -872,13 +900,23 @@ function readJsonlOutputStats(filePath) {
     const content = fs.readFileSync(filePath, 'utf8');
     let outputTokens = 0;
     let lastLineMs = null;
+    // Claude Code writes one transcript line per content block (thinking/text/tool_use/...) and
+    // attaches the FULL message.usage to each, so a single message would be summed N times. Count
+    // its usage once per message.id. Lines without a message.id (e.g. test fixtures) count as-is.
+    const counted = new Set();
     for (const line of content.split('\n')) {
       if (!line.trim()) continue;
       try {
         const obj = JSON.parse(line);
         const ts = lineTimestamp(obj, stat.mtimeMs);
-        outputTokens += outputTokensFromObject(obj);
         if (lastLineMs === null || ts > lastLineMs) lastLineMs = ts;
+        const id = obj.message?.id;
+        if (id && counted.has(id)) continue;
+        const add = outputTokensFromObject(obj);
+        if (add > 0) {
+          if (id) counted.add(id);
+          outputTokens += add;
+        }
       } catch (_) {
         // Ignore malformed jsonl lines.
       }
