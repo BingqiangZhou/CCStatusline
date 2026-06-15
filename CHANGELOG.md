@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.21 - 2026-06-15
+
+- Fixed the `speed` field flipping to `--` and staying there after a session went idle with the window left open. Root cause: every Claude Code project shares one cache file (`~/.claude/glm-statusline-cache.json`), and each status-line render rewrote it non-atomically; a concurrent write from another project could corrupt the file, so the next render's `loadCache` got `{}` and lost this session's per-session speed baseline. Because the speed idle branch deliberately never rewrites the cache (to preserve the baseline), the lost entry stayed `shown: null` → `--` until the next message (other fields recover in one tick since they rewrite every render). Cache writes are now atomic (temp file + `rename`), and the idle branch falls back to the session average when no usable instantaneous reading exists, so `Speed` no longer strands at `--` while valid data is present.
+- Fixed `output_tokens` (and therefore `Speed`, `Avg`, and the `session` token field) being over-counted ~3.3×. Claude Code writes one transcript line per content block (thinking / text / tool_use …) and attaches the full `message.usage` to each; the reader summed them all. Usage is now counted once per `message.id`.
+
 ## 1.2.20 - 2026-06-14
 
 - Fixed the `speed` field's `Avg` reading being depressed after `/clear`. `cost.total_api_duration_ms` is a Claude Code process-lifetime accumulator that `/clear` does not reset — the new session inherits the prior session's accumulated API time, which dragged down the absolute average (`out / totalApi`) while leaving `current` (delta-based) correct. Proven by a session whose transcript spanned 357 s yet reported 1682 s of API time — 4.7× its own wall-clock, impossible without carry-over. `Avg` is now anchored at the session's first observed tick, `(out - out0) / ((apiMs - apiMs0)/1000)`, with `out0`/`apiMs0` seeded alongside the speed baseline and re-seeded on reset, so the carried-over base cancels. The first tick / right after a reset still falls back to the absolute ratio (no delta yet), so the segment never shows a bare `--`.
