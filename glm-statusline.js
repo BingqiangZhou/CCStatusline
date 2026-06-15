@@ -242,6 +242,16 @@ function saveCache(cache) {
   }
 }
 
+// Commit a cache mutation made by a field. When the caller shares one cache object across the
+// whole render (renderStatusLine passes `mark`), just flag it dirty — a single end-of-render
+// saveCache persists every field's mutation at once (one read + one write per render instead of
+// ~4 each, and a far smaller concurrency window). Self-managed callers (renderPlanDetails) omit
+// `mark` and save immediately, preserving the old per-field behavior.
+function commitCache(cache, mark) {
+  if (mark) mark();
+  else saveCache(cache);
+}
+
 function isFresh(entry, ttl = CACHE_TTL_MS) {
   return entry && typeof entry.ts === 'number' && Date.now() - entry.ts < ttl;
 }
@@ -512,7 +522,7 @@ function collectObjects(obj, out, depth) {
   for (const value of Object.values(obj)) collectObjects(value, out, depth + 1);
 }
 
-async function fetchQuota(env) {
+async function fetchQuota(env, cache, mark) {
   const baseRoot = normalizeBaseRoot(env.ANTHROPIC_BASE_URL || '');
   const authToken = env.ANTHROPIC_AUTH_TOKEN || '';
   const fallbackPlan = normalizePlanName(env.GLM_STATUSLINE_PLAN || '');
@@ -532,7 +542,7 @@ async function fetchQuota(env) {
 
   if (!baseRoot || !authToken) return fallback;
 
-  const cache = loadCache();
+  cache = cache || loadCache();
   const cacheKey = `quota:${baseRoot}`;
   if (isFresh(cache[cacheKey])) {
     return { ...fallback, ...cache[cacheKey].value };
@@ -545,7 +555,7 @@ async function fetchQuota(env) {
     if (!value.planName) value.planName = fallback.planName;
     value.fiveHourUpdateTime = value.fiveHourResetTime || fetchedAt;
     cache[cacheKey] = { ts: Date.now(), value };
-    saveCache(cache);
+    commitCache(cache, mark);
     return { ...fallback, ...value };
   } catch (err) {
     debugLog('quota API error', err);
@@ -668,14 +678,14 @@ function getContextInfo(sessionContext, sessionTokens, env) {
 //     so holding the last known value is always safe here.
 // The transient 0 is deliberately NOT written to the cache, so it can't poison later ticks.
 // Only touches the cache when the context field is actually displayed.
-function resolveContextPercent(sessionContext, sessionTokens, env, config) {
+function resolveContextPercent(sessionContext, sessionTokens, env, config, cache, mark) {
   const info = getContextInfo(sessionContext, sessionTokens, env);
   if (!config?.display?.includes('context')) return info.percent;
 
   const sessionId = String(sessionContext?.session_id || sessionContext?.sessionId || '');
   if (!sessionId) return info.percent;
 
-  const cache = loadCache();
+  cache = cache || loadCache();
   const key = `context:${sessionId}`;
   const held = cache[key];
   const hasHeldValue = held && typeof held.percent === 'number';
@@ -690,7 +700,7 @@ function resolveContextPercent(sessionContext, sessionTokens, env, config) {
   // Known this tick — remember it for future unknown ticks.
   cache[key] = { percent: info.percent, ts: Date.now() };
   pruneContextCache(cache);
-  saveCache(cache);
+  commitCache(cache, mark);
   return info.percent;
 }
 
@@ -719,7 +729,7 @@ function anchoredAverage(outputTokens, apiMs, prev) {
   return null;
 }
 
-function resolveSpeed(sessionContext, transcriptPath, config) {
+function resolveSpeed(sessionContext, transcriptPath, config, cache, mark) {
   if (!config?.display?.includes('speed')) return { current: null, average: null };
 
   const sessionId = String(sessionContext?.session_id || sessionContext?.sessionId || '');
@@ -730,7 +740,7 @@ function resolveSpeed(sessionContext, transcriptPath, config) {
 
   const average = apiMs !== null && apiMs > 0 && outputTokens > 0 ? outputTokens / (apiMs / 1000) : null;
 
-  const cache = loadCache();
+  cache = cache || loadCache();
   const key = `speed:${sessionId}`;
   const prev = cache[key];
 
@@ -738,7 +748,7 @@ function resolveSpeed(sessionContext, transcriptPath, config) {
   if (!prev || typeof prev.out !== 'number') {
     cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: null, out0: outputTokens, apiMs0: apiMs };
     pruneSpeedCache(cache);
-    saveCache(cache);
+    commitCache(cache, mark);
     return { current: null, average };
   }
 
@@ -754,7 +764,7 @@ function resolveSpeed(sessionContext, transcriptPath, config) {
   if (outputTokens > 0 && outputTokens < prev.out) {
     cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: null, out0: outputTokens, apiMs0: apiMs };
     pruneSpeedCache(cache);
-    saveCache(cache);
+    commitCache(cache, mark);
     return { current: null, average };
   }
 
@@ -772,7 +782,7 @@ function resolveSpeed(sessionContext, transcriptPath, config) {
     const current = dOut / denomSeconds;
     cache[key] = { out: outputTokens, apiMs, lineMs: lastLineMs, ts: now, shown: current, out0: prev.out0, apiMs0: prev.apiMs0 };
     pruneSpeedCache(cache);
-    saveCache(cache);
+    commitCache(cache, mark);
     const anchored = anchoredAverage(outputTokens, apiMs, prev);
     return { current, average: anchored != null ? anchored : average };
   }
@@ -1008,12 +1018,12 @@ function extractTokenSumFromModelUsage(json) {
   return total;
 }
 
-async function fetchModelUsage(env, period) {
+async function fetchModelUsage(env, period, cache, mark) {
   const baseRoot = normalizeBaseRoot(env.ANTHROPIC_BASE_URL || '');
   const authToken = env.ANTHROPIC_AUTH_TOKEN || '';
   if (!baseRoot || !authToken) return null;
 
-  const cache = loadCache();
+  cache = cache || loadCache();
   const cacheKey = `model:${baseRoot}:${period}`;
   if (isFresh(cache[cacheKey])) return cache[cacheKey].value;
 
@@ -1035,7 +1045,7 @@ async function fetchModelUsage(env, period) {
     const json = await httpJson(url, authToken);
     const value = extractTokenSumFromModelUsage(json);
     cache[cacheKey] = { ts: Date.now(), value };
-    saveCache(cache);
+    commitCache(cache, mark);
     return value;
   } catch (err) {
     debugLog(`model usage API error (${period})`, err);
@@ -1142,18 +1152,31 @@ async function renderStatusLine(sessionContext = {}) {
     sessionContext?.transcript_path || sessionContext?.transcriptPath || sessionContext?.conversation_log_path || ''
   );
   const sessionTokens = readJsonlTokenStats(transcriptPath);
-  const speedStats = resolveSpeed(sessionContext, transcriptPath, config);
 
-  const quota = await fetchQuota(env);
-  const contextPercent = resolveContextPercent(sessionContext, sessionTokens, env, config);
+  // One cache read + one cache write per render: each field mutates this shared object and flags it
+  // dirty via markCache, then a single saveCache persists everything. This replaces the old pattern
+  // where each field did its own loadCache+saveCache (~4 whole-file reads + ~4 whole-file writes per
+  // render). The write window also shrinks ~4×, lowering the chance of racing another project's write.
+  const cache = loadCache();
+  let cacheDirty = false;
+  const markCache = () => {
+    cacheDirty = true;
+  };
+
+  const speedStats = resolveSpeed(sessionContext, transcriptPath, config, cache, markCache);
+
+  const quota = await fetchQuota(env, cache, markCache);
+  const contextPercent = resolveContextPercent(sessionContext, sessionTokens, env, config, cache, markCache);
   const fiveHourPercent = quota.fiveHourPercent ?? 0;
   const fiveHourReset = formatResetHHmm(quota.fiveHourUpdateTime || quota.fiveHourResetTime);
   const needsDay = config.display.includes('day');
   const needsMonth = config.display.includes('30d');
   const [dayTokens, monthTokens] = await Promise.all([
-    needsDay ? fetchModelUsage(env, 'day') : Promise.resolve(null),
-    needsMonth ? fetchModelUsage(env, 'month') : Promise.resolve(null),
+    needsDay ? fetchModelUsage(env, 'day', cache, markCache) : Promise.resolve(null),
+    needsMonth ? fetchModelUsage(env, 'month', cache, markCache) : Promise.resolve(null),
   ]);
+
+  if (cacheDirty) saveCache(cache);
 
   const planName = quota.planName || normalizePlanName(env.GLM_STATUSLINE_PLAN) || 'GLM';
   const effortLevel = getEffortLevel(sessionContext, env);
