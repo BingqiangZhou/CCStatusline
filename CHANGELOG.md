@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.22 - 2026-06-15
+
+- Internal: a status-line render now reads and writes the shared cache file once each, instead of each field doing its own `loadCache`/`saveCache` (previously ~4 whole-file reads and ~4–6 writes per render). Fields mutate one shared cache object and flag it dirty; a single `saveCache` at the end persists everything, and only when something actually changed — an idle render with no change writes nothing. No user-visible behavior change; ~4× less cache I/O per render and a smaller cross-project write-race window.
+
 ## 1.2.21 - 2026-06-15
 
 - Fixed the `speed` field flipping to `--` and staying there after a session went idle with the window left open. Root cause: every Claude Code project shares one cache file (`~/.claude/glm-statusline-cache.json`), and each status-line render rewrote it non-atomically; a concurrent write from another project could corrupt the file, so the next render's `loadCache` got `{}` and lost this session's per-session speed baseline. Because the speed idle branch deliberately never rewrites the cache (to preserve the baseline), the lost entry stayed `shown: null` → `--` until the next message (other fields recover in one tick since they rewrite every render). Cache writes are now atomic (temp file + `rename`), and the idle branch falls back to the session average when no usable instantaneous reading exists, so `Speed` no longer strands at `--` while valid data is present.
