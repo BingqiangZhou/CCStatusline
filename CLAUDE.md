@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Claude Code **status line plugin** ("GLM StatusLine") that shows GLM / Z.ai usage (5H quota, MCP/tools quota, context %, session tokens, day/30D usage, mapped model name, effort level, output speed) in the Claude Code status bar. It is also a learning project: `notes/` holds 11 study notes on the Claude Code plugin system (in Chinese) with this plugin as the worked example, and `docs/` holds two longer-form English guides (`docs/claude-code-plugin-build-guide.md`, `docs/claude-code-skills-and-extensions-guide.md`) plus `docs/superpowers/{plans,specs}/` working artifacts from the output-speed feature.
+A Claude Code **status line plugin** ("GLM StatusLine") that shows GLM / Z.ai usage (5H quota, MCP/tools quota, context %, session tokens, day/30D usage, mapped model name, effort level, output speed) in the Claude Code status bar. It is also a learning project: `notes/` holds 11 study notes on the Claude Code plugin system (in Chinese) with this plugin as the worked example, and `docs/` holds two longer-form English guides (`docs/claude-code-plugin-build-guide.md`, `docs/claude-code-skills-and-extensions-guide.md`).
 
 **Zero dependencies** — Node.js standard library only (`fs`, `path`, `os`, `http`, `https`, `url`, `child_process`, `readline`, `assert`). There is no `npm install` step. Node 18+.
 

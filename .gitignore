@@ -19,3 +19,6 @@ pnpm-debug.log*
 
 # Local status line cache copies
 glm-statusline-cache.json
+
+# Local working artifacts (superpowers plans/specs, kept private)
+docs/superpowers/
