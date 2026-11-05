@@ -43,8 +43,10 @@ const http = require('http');
 const { URL } = require('url');
 // 字段定义库：全部字段表 DISPLAY_FIELDS（未配置时默认全显）、分组 groupDisplay、display 清洗+回退 displayOrDefault
 const { DISPLAY_FIELDS, groupDisplay, displayOrDefault } = require('../lib/display-fields');
-// 文件读写共享库（与安装器共用；原先两处各有一份同名拷贝）：安全读 JSON、原子写、transcript 遍历、配置路径
+// 文件读写共享库（与安装器共用）：安全读 JSON、原子写、transcript 遍历、配置路径、调试日志
 const {
+  // 调试日志（读文件/写缓存/API 出错时记 stderr，仅 GLM_STATUSLINE_DEBUG=1 可见）
+  debugLog,
   // "~" 路径展开（transcript_path 等处仍直接使用）
   expandHome,
   // 通用 JSON 读取（吞错返回 null —— 经下方 readJsonSafe 包装记 debugLog）
@@ -126,16 +128,6 @@ const PLAN_KEYS = [
   'sku',
   'edition',
 ];
-
-// 调试日志：仅当 GLM_STATUSLINE_DEBUG=1 时输出（走 stderr，绝不污染 stdout —— 那是状态栏本体）
-function debugLog(label, err) {
-  // 未开调试开关：静默返回
-  if (process.env.GLM_STATUSLINE_DEBUG !== '1') return;
-  // 取错误信息（err.message 优先，其余 String 化兜底）
-  const message = err && err.message ? err.message : String(err || 'unknown error');
-  // 带统一前缀打到 stderr
-  console.error(`[glm-statusline] ${label}: ${message}`);
-}
 
 // 安全读 JSON：不存在/解析失败一律返回 null（状态栏绝不能因读文件抛错）
 //（底层是 lib/file-io.js 的 readJsonFile —— 这里包装出"出错记 debugLog"的调用形态）
