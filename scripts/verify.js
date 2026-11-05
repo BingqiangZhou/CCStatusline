@@ -115,6 +115,17 @@ function verifyProjectMetadata() {
 
   assertFile('bin/glm-statusline.js');
   assertFile('bin/glm-statusline-install.js');
+  // lib/ 随插件包分发（marketplace source: "./"），钉住全部模块文件防搬移笔误
+  assertFile('lib/display-fields.js');
+  assertFile('lib/file-io.js');
+  assertFile('lib/interactive-configure.js');
+  assertFile('lib/model-mapping.js');
+  assertFile('lib/monitor-api.js');
+  assertFile('lib/quota-parsing.js');
+  assertFile('lib/session-metrics.js');
+  assertFile('lib/status-cache.js');
+  assertFile('lib/statusline-format.js');
+  assertFile('lib/transcript-stats.js');
   assertFile('skills/configure/SKILL.md');
   assertFile('skills/install/SKILL.md');
   assertFile('skills/plan-details/SKILL.md');
