@@ -218,7 +218,7 @@ GLM/Z.ai 相关配置仍然放在 Claude Code settings 的 `env` 中：
 
 缓存策略建议：
 
-- 默认 `60000` ms 是一个比较稳的折中：status line 每 5 秒刷新一次，但 quota、Day、30D 这类聚合数据没有必要每次都请求 API。
+- 默认 `60000` ms 是一个比较稳的折中：status line 随会话消息更新刷新（最快约 300ms 一帧），空闲时按 `refreshInterval: 5` 保底每 5 秒重跑一次；quota、Day、30D 这类聚合数据没有必要每次都请求 API。
 - 日常使用建议保留 60 秒。这样界面足够新，也不会把智谱/Z.ai monitor API 打得太频繁。
 - 调试 API 或排查数据问题时，可以临时设置 `GLM_STATUSLINE_CACHE_TTL_MS=1`。
 - 如果更关注减少 API 请求，可以设置为 `120000` 到 `300000` ms。代价是 5H 百分比和 Day/30D token 会慢一些更新。
