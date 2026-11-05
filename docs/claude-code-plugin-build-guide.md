@@ -100,7 +100,7 @@ glm-statusline-install.js uninstall
 
 ## 现有 JS 文件主要功能分析
 
-`bin/glm-statusline.js` 是 Node.js Claude Code status line 的核心编排脚本，无外部依赖。Claude Code 调用 status line 命令时，会把当前会话 JSON 通过 stdin 传给脚本，脚本再向 stdout 输出要显示的文本。字段定义和格式化工具已拆到 `lib/display-fields.js`、`lib/statusline-format.js`，这样安装器和状态栏渲染可以共享同一套字段顺序、默认字段和显示格式。
+`bin/glm-statusline.js` 是 Node.js Claude Code status line 的核心编排脚本（渲染编排 + main），无外部依赖。Claude Code 调用 status line 命令时，会把当前会话 JSON 通过 stdin 传给脚本，脚本再向 stdout 输出要显示的文本。独立功能已拆到 `lib/` 各共享模块——字段定义（`lib/display-fields.js`）、格式化（`lib/statusline-format.js`）、文件读写（`lib/file-io.js`）、共享缓存（`lib/status-cache.js`）、transcript 统计（`lib/transcript-stats.js`）、兼容式解析（`lib/quota-parsing.js`）、监控 API 客户端（`lib/monitor-api.js`）、模型映射（`lib/model-mapping.js`）、会话指标（`lib/session-metrics.js`）、交互式配置（`lib/interactive-configure.js`）——安装器和状态栏渲染共享同一套实现。
 
 它的核心模块如下：
 
