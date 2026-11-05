@@ -22,7 +22,7 @@
 
 ### 1. Claude Code 状态栏
 
-插件会把 `glm-statusline.js` 注册为 Claude Code 的 `statusLine` 命令，在 Claude Code 底部显示 GLM Coding Plan 的关键用量。
+插件会把 `bin/glm-statusline.js` 注册为 Claude Code 的 `statusLine` 命令，在 Claude Code 底部显示 GLM Coding Plan 的关键用量。
 
 当前状态栏输出类似（字段按类别分行；终端更宽时相邻行会自动合并，见下文「布局」一节）：
 
@@ -73,7 +73,7 @@ Claude Code 刷新
      │  选最高版本号的 bin/glm-statusline.js（每次现场解析 → 插件更新后下一帧即生效）
      ├─ 扫不到 → 回退安装时记录的仓库源码路径
      └─ spawnSync 子进程，转发 stdin/stdout/env，透传退出码
-         └─ 进程②  bin/glm-statusline.js（一行 require）→ glm-statusline.js 顶层 main()
+         └─ 进程②  bin/glm-statusline.js（核心本体，经 ../lib/ 引用共享模块）→ 顶层 main()
              ├─ 读 stdin：Claude Code 传入的会话 JSON
              └─ renderStatusLine(…) → stdout 打出 1–3 行 → 进程退出
 ```
@@ -495,7 +495,7 @@ CCStatusline/
 │   ├── plugin.json                  # 插件清单
 │   └── marketplace.json             # 本地 marketplace 清单
 ├── bin/
-│   ├── glm-statusline.js            # 状态栏入口（加载根目录 glm-statusline.js）
+│   ├── glm-statusline.js            # 状态栏核心编排脚本（入口即实现，引用 ../lib/）
 │   └── glm-statusline-install.js    # 安装/配置/卸载 CLI
 ├── docs/
 │   ├── claude-code-plugin-build-guide.md      # 插件构建过程文档
@@ -527,7 +527,6 @@ CCStatusline/
 │   ├── plan-details/SKILL.md        # /glm-statusline:plan-details
 │   └── uninstall/SKILL.md           # /glm-statusline:uninstall
 ├── test/fixtures/                   # GLM / Z.ai monitor API 样例响应
-├── glm-statusline.js                # 状态栏核心编排脚本
 ├── package.json
 ├── CHANGELOG.md                      # 英文更新日志
 ├── CHANGELOG.zh.md                   # 中文更新日志

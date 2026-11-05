@@ -23,10 +23,9 @@ plugin-root/
 ├── skills/
 │   └── install/
 │       └── SKILL.md
-├── bin/
-│   ├── glm-statusline.js
-│   └── glm-statusline-install.js
-└── glm-statusline.js
+└── bin/
+    ├── glm-statusline.js
+    └── glm-statusline-install.js
 ```
 
 本项目用到这些能力：
@@ -101,7 +100,7 @@ glm-statusline-install.js uninstall
 
 ## 现有 JS 文件主要功能分析
 
-`glm-statusline.js` 是 Node.js Claude Code status line 的核心编排脚本，无外部依赖。Claude Code 调用 status line 命令时，会把当前会话 JSON 通过 stdin 传给脚本，脚本再向 stdout 输出要显示的文本。字段定义和格式化工具已拆到 `lib/display-fields.js`、`lib/statusline-format.js`，这样安装器和状态栏渲染可以共享同一套字段顺序、默认字段和显示格式。
+`bin/glm-statusline.js` 是 Node.js Claude Code status line 的核心编排脚本，无外部依赖。Claude Code 调用 status line 命令时，会把当前会话 JSON 通过 stdin 传给脚本，脚本再向 stdout 输出要显示的文本。字段定义和格式化工具已拆到 `lib/display-fields.js`、`lib/statusline-format.js`，这样安装器和状态栏渲染可以共享同一套字段顺序、默认字段和显示格式。
 
 它的核心模块如下：
 
@@ -141,9 +140,9 @@ API: api.z.ai · key configured · cache 12s ago
 
 ## 本项目的插件化设计
 
-本项目保留 `glm-statusline.js` 作为核心编排入口，同时把可共享、容易独立理解的字段和格式化逻辑拆到 `lib/`。插件包装层负责让 Claude Code 发现和调用这些能力：
+本项目把核心编排入口 `bin/glm-statusline.js` 直接放在插件的 `bin/` 目录（PATH 注入目录，入口即实现），同时把可共享、容易独立理解的字段和格式化逻辑拆到 `lib/`。插件包装层负责让 Claude Code 发现和调用这些能力：
 
-- `bin/glm-statusline.js`：插件内 status line launcher，直接加载根目录的 `glm-statusline.js`。
+- `bin/glm-statusline.js`：status line 核心编排脚本（入口即实现，经 `../lib/` 引用共享模块）。
 - `bin/glm-statusline-install.js`：显式启用/禁用脚本，负责写入或移除 `~/.claude/settings.json` 的 `statusLine` 字段，也负责写入显示配置和输出预览。
 - `skills/install/SKILL.md`：安装技能，用户运行 `/glm-statusline:install` 后，Claude Code 会执行安装脚本。
 - `skills/configure/SKILL.md`：配置技能，用户运行 `/glm-statusline:configure` 后，Claude Code 会执行 `glm-statusline-install.js configure`。
