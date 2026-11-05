@@ -106,6 +106,8 @@ const {
   formatResetMMDD,
   // 时间戳 → "HH:mm"
   formatTimeHHmm,
+  // 速度文本（<1 或未知 → "--"）
+  formatSpeed,
   // token 数 → "42.8M" 式缩写
   formatTokens,
   // 各形态时间 → 毫秒时间戳（失败为 null）
@@ -120,7 +122,6 @@ const {
 
 // 用户主目录：所有默认路径的根
 const HOME = os.homedir();
-// 上下文窗口大小的兜底值：20 万 token
 // 安全读 JSON：不存在/解析失败一律返回 null（状态栏绝不能因读文件抛错）
 //（底层是 lib/file-io.js 的 readJsonFile —— 这里包装出"出错记 debugLog"的调用形态）
 function readJsonSafe(filePath) {
@@ -197,25 +198,6 @@ function mergeEnvFromSettings(sessionContext) {
   return { ...merged, ...process.env };
 }
 
-// 速度文本格式化：未知或 <1 都显示 "--"（绝不显示 0 —— Number(null)===0 的坑）
-function formatSpeed(value) {
-  // null/undefined mean "no reading yet"; values < 1 tok/s are not a meaningful integer reading.
-  // Both render as '-- so the segment can never display 0 (Number(null) === 0 would otherwise).
-  // null/undefined → "--"
-  if (value === null || value === undefined) return '--';
-  // 转数字
-  const n = Number(value);
-  // 非有限或 <1 tok/s → "--"（不足 1 的整数读数无意义）
-  if (!Number.isFinite(n) || n < 1) return '--';
-  // <1000：整数
-  if (n < 1000) return String(Math.round(n));
-  // <100 万：K 单位 1 位小数
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
-  // 更大：M 单位
-  return `${(n / 1_000_000).toFixed(1)}M`;
-}
-
-// --plan-details 的单行额度格式化："标签: 42% · 1.2M/5M · resets 18:30"
 function formatLimitLine(label, detail, options = {}) {
   // 百分比文本（读不到 → "unavailable"）
   const percent = Number.isFinite(detail?.percent) ? `${detail.percent}%` : 'unavailable';
