@@ -31,9 +31,7 @@
 // 严格模式：强制变量声明、静默错误显式抛错
 'use strict';
 
-// 文件系统：读写配置/缓存/transcript（零第三方依赖，全标准库）
-const fs = require('fs');
-// 路径处理：跨平台拼接、~ 展开等
+// 路径处理：跨平台拼接等（文件读写已统一走 lib/file-io.js）
 const path = require('path');
 // 系统信息：定位用户主目录 HOME
 const os = require('os');
@@ -43,8 +41,21 @@ const https = require('https');
 const http = require('http');
 // URL 构造器：解析 base URL（非法输入由 try/catch 兜住）
 const { URL } = require('url');
-// 字段定义库：全部字段表 DISPLAY_FIELDS（未配置时默认全显）、分组 groupDisplay、display 清洗 normalizeDisplayList
-const { DISPLAY_FIELDS, groupDisplay, normalizeDisplayList } = require('./lib/display-fields');
+// 字段定义库：全部字段表 DISPLAY_FIELDS（未配置时默认全显）、分组 groupDisplay、display 清洗+回退 displayOrDefault
+const { DISPLAY_FIELDS, groupDisplay, displayOrDefault } = require('./lib/display-fields');
+// 文件读写共享库（与安装器共用；原先两处各有一份同名拷贝）：安全读 JSON、原子写、transcript 遍历、配置路径
+const {
+  // "~" 路径展开（transcript_path 等处仍直接使用）
+  expandHome,
+  // 通用 JSON 读取（吞错返回 null —— 经下方 readJsonSafe 包装记 debugLog）
+  readJsonFile,
+  // 通用 JSON 写入（saveCache 用其原子写模式）
+  writeJsonFile,
+  // transcript JSONL 遍历器（内置 message.id 去重协议）
+  forEachTranscriptLine,
+  // 配置文件路径解析（env 覆盖 → 默认 + ~ 展开）
+  configFilePath,
+} = require('./lib/file-io');
 // 渲染原语库（下面逐项解构引入）
 const {
   // 百分比夹取到 [0,100] 整数
@@ -75,8 +86,6 @@ const {
 const HOME = os.homedir();
 // 共享缓存文件路径（所有项目写同一文件；可用环境变量重定向 —— 测试即靠它隔离）
 const CACHE_FILE = process.env.GLM_STATUSLINE_CACHE_FILE || path.join(HOME, '.claude', 'glm-statusline-cache.json');
-// 默认配置文件路径（display 等用户配置）
-const DEFAULT_CONFIG_FILE = path.join(HOME, '.claude', 'glm-statusline-config.json');
 // 上下文窗口大小的兜底值：20 万 token
 const DEFAULT_CONTEXT_WINDOW = 200000;
 // API 请求超时毫秒数（可用环境变量调整）
@@ -128,45 +137,21 @@ function debugLog(label, err) {
   console.error(`[glm-statusline] ${label}: ${message}`);
 }
 
-// 把 "~/xxx" 展开成绝对路径；非法输入原样返回（不抛错）
-function expandHome(input) {
-  // 空值或非字符串：原样返回
-  if (!input || typeof input !== 'string') return input;
-  // 单独的 "~" 即主目录
-  if (input === '~') return HOME;
-  // "~/" 开头：替换成 HOME + 剩余部分
-  if (input.startsWith('~/')) return path.join(HOME, input.slice(2));
-  // 其余情况原样返回
-  return input;
-}
-
 // 安全读 JSON：不存在/解析失败一律返回 null（状态栏绝不能因读文件抛错）
-function readJsonFile(filePath) {
-  try {
-    // 路径为空或文件不存在 → null
-    if (!filePath || !fs.existsSync(filePath)) return null;
-    // 读文件并解析 JSON
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  // catch：任何一步出错都落到这里
-  } catch (err) {
-    // 记调试日志（仅 debug 模式可见）
-    debugLog(`cannot parse JSON file ${filePath}`, err);
-    // 对外表现为 null，绝不抛错
-    return null;
-  }
+//（底层是 lib/file-io.js 的 readJsonFile —— 这里包装出"出错记 debugLog"的调用形态）
+function readJsonSafe(filePath) {
+  return readJsonFile(filePath, { onError: (err) => debugLog(`cannot parse JSON file ${filePath}`, err) });
 }
 
 // 读取并归一化状态栏配置：display 字段列表 + 最大宽度
 //（布局已统一为分组多行 + 自动合并；配置文件里残留的 layout 键会被静默忽略）
 function readStatusConfig(env = process.env) {
-  // 配置文件路径（支持 ~ 展开），未配置时用默认路径
-  const configPath = expandHome(env.GLM_STATUSLINE_CONFIG_FILE || DEFAULT_CONFIG_FILE);
+  // 配置文件路径（env 覆盖 → 默认路径，含 ~ 展开；解析逻辑在 lib/file-io.js）
+  const configPath = configFilePath(env);
   // 读配置 JSON（失败得到空对象）
-  const fileConfig = readJsonFile(configPath) || {};
-  // 清洗 display 列表：过滤非法字段名 + 去重
-  const fromFile = normalizeDisplayList(fileConfig.display);
-  // 用户配置了合法字段就按配置显示；未配置/全部非法 → 默认显示全部字段
-  const display = fromFile.length ? fromFile : [...DISPLAY_FIELDS];
+  const fileConfig = readJsonSafe(configPath) || {};
+  // display 清洗 + 未配置回退全字段（逻辑在 lib/display-fields.js）
+  const display = displayOrDefault(fileConfig.display);
   // 读终端最大宽度
   const maxWidth = readMaxWidth(env);
 
@@ -216,7 +201,7 @@ function mergeEnvFromSettings(sessionContext) {
   // 逐层读取合并
   for (const file of files) {
     // 读该层 settings JSON（读不到为 null）
-    const json = readJsonFile(file);
+    const json = readJsonSafe(file);
     // 只关心其中的 env 对象
     if (json && json.env && typeof json.env === 'object') {
       // 浅合并：后读的层覆盖先读的层
@@ -323,13 +308,13 @@ function httpJson(url, authToken) {
 
 // 读共享缓存文件：内容非法/不存在 → 空对象（绝不抛错）
 function loadCache() {
-  // 读缓存 JSON（readJsonFile 已兜底 null）
-  const cache = readJsonFile(CACHE_FILE);
+  // 读缓存 JSON（readJsonSafe 已兜底 null）
+  const cache = readJsonSafe(CACHE_FILE);
   // 是对象就用，否则（损坏成字符串/数字等非对象值）回空对象
   return cache && typeof cache === 'object' ? cache : {};
 }
 
-// 写缓存文件（原子写，见下方英文注释）
+// 写缓存文件：委托 lib/file-io.js 的 writeJsonFile 原子写（见下方英文注释）
 function saveCache(cache) {
   // Atomic write (temp file + rename). Several Claude Code projects share this one cache file and
   // every status-line render rewrites it. A plain in-place writeFileSync can interleave with a
@@ -338,24 +323,13 @@ function saveCache(cache) {
   // branch never rewrites, so it strands Speed at '--'. rename is atomic on POSIX/darwin, so a
   // reader always sees a complete file. The temp is per-PID so concurrent writers don't clobber
   // each other's temp.
-  // 保护块：写缓存失败只记日志
-  try {
-    // 缓存目录（通常 ~/.claude）
-    const dir = path.dirname(CACHE_FILE);
-    // 确保目录存在（首次运行时）
-    fs.mkdirSync(dir, { recursive: true });
-    // 临时文件名带 PID：并发的多个写者互不覆盖对方的临时文件
-    const tmp = `${CACHE_FILE}.tmp.${process.pid}`;
-    // 先写完整内容到临时文件
-    fs.writeFileSync(tmp, JSON.stringify(cache, null, 2));
-    // 再原子改名到正式路径：POSIX 上 rename 原子，读者永远看到完整文件（关键不变量，防并发写坏缓存）
-    fs.renameSync(tmp, CACHE_FILE);
-  // catch：写失败（磁盘满/权限等）
-  } catch (err) {
-    // 只记调试日志，缓存写失败绝不影响输出
-    debugLog(`cannot write cache ${CACHE_FILE}`, err);
-    // Ignore cache write errors; statusLine should never break Claude Code.
-  }
+  // 委托共享写入原语：atomic 走"临时文件 + rename"原子写；swallowErrors 吞写失败（仅记 debugLog，
+  // 缓存写失败绝不影响输出 —— statusLine should never break Claude Code）
+  writeJsonFile(CACHE_FILE, cache, {
+    atomic: true,
+    swallowErrors: true,
+    onError: (err) => debugLog(`cannot write cache ${CACHE_FILE}`, err),
+  });
 }
 
 // Commit a cache mutation made by a field. When the caller shares one cache object across the
@@ -1291,69 +1265,30 @@ function outputTokensFromObject(obj) {
   return total;
 }
 
-// 读行时间戳：行自带时间优先，缺失兜底文件修改时间
-function lineTimestamp(obj, fallbackMs) {
-  // 按优先级取原始值
-  const raw = obj?.timestamp || obj?.created_at || obj?.createdAt || obj?.message?.timestamp;
-  // 转毫秒时间戳
-  const ms = raw ? new Date(raw).getTime() : NaN;
-  // 有限就用，否则用兜底
-  return Number.isFinite(ms) ? ms : fallbackMs;
-}
-
 // 会话 token 统计：读 transcript JSONL 累加全部 token，可按时间窗过滤
+//（文件读取/逐行解析/message.id 去重的公共骨架在 lib/file-io.js 的 forEachTranscriptLine —— 这里只是累加器）
 function readJsonlTokenStats(filePath, options = {}) {
   // 时间窗参数（默认全量）
   const { startMs = -Infinity, endMs = Infinity } = options;
-  // 保护块：读取/解析错误一律归 0
-  try {
-    // 路径为空或不存在 → 0
-    if (!filePath || !fs.existsSync(filePath)) return 0;
-    // 文件状态（mtime 做时间兜底）
-    const stat = fs.statSync(filePath);
-    // 全文读入
-    const content = fs.readFileSync(filePath, 'utf8');
-    // 累计器
-    let total = 0;
-    // Dedup by message.id — see readJsonlOutputStats: a message spans one line per content block,
-    // each carrying the full message.usage, so summing naively over-counts ~N×.
-    // message.id 去重集合（一条消息每个内容块各带完整 usage，不去重会放大 ~N 倍）
-    const counted = new Set();
-    // 逐行处理
-    for (const line of content.split('\n')) {
-      // 空行跳过
-      if (!line.trim()) continue;
-      // 保护块：坏行只跳过不影响全局
-      try {
-        // 解析单行 JSON
-        const obj = JSON.parse(line);
-        // 行时间戳（无自带时间用文件 mtime）
-        const ts = lineTimestamp(obj, stat.mtimeMs);
-        // 时间窗之外的行不计
-        if (ts < startMs || ts >= endMs) continue;
-        // 消息 ID
-        const id = obj.message?.id;
-        // 已计过 → 跳过（关键去重）
-        if (id && counted.has(id)) continue;
-        // 本行 token 数
-        const add = tokenTotalFromObject(obj);
-        // 有有效数值才累计
-        if (add > 0) {
-          // 登记消息 ID
-          if (id) counted.add(id);
-          // 累加
-          total += add;
-        }
-      } catch (_) {
-        // Ignore malformed jsonl lines.
-      }
+  // 累计器（读失败时 visit 一次都不调用 → 保持 0，与原"文件级错误归 0"一致）
+  let total = 0;
+  // 遍历每行：时间窗过滤 → 去重跳过 → 提取累加
+  //（Dedup by message.id：一条消息每个内容块各占一行且都带完整 usage，不去重会放大 ~N 倍 —— 去重协议见 lib/file-io.js）
+  forEachTranscriptLine(filePath, (obj, ts, line) => {
+    // 时间窗之外的行不计（不计入 → 也不登记 id，与原实现一致）
+    if (ts < startMs || ts >= endMs) return;
+    // 同 message.id 已计过 → 跳过（关键去重）
+    if (line.duplicate) return;
+    // 本行 token 数
+    const add = tokenTotalFromObject(obj);
+    // 有有效数值才累计；且只有真正计入才登记消息 ID（add=0 的行不占用去重名额，同原实现）
+    if (add > 0) {
+      line.countOnce();
+      total += add;
     }
-    // 返回总量
-    return total;
-  // catch（文件级错误）→ 0
-  } catch (_) {
-    return 0;
-  }
+  });
+  // 返回总量
+  return total;
 }
 
 // One pass over the transcript JSONL: sum output tokens and capture the most-recent line
@@ -1361,58 +1296,30 @@ function readJsonlTokenStats(filePath, options = {}) {
 // last-line timestamp (a fallback denominator source when cost.total_api_duration_ms is absent).
 // 一趟遍历 transcript：累计输出 token + 记录最后一行时间戳（速度专用，见上方英文注释）
 function readJsonlOutputStats(filePath) {
-  // 保护块
-  try {
-    // 无文件 → 全零
-    if (!filePath || !fs.existsSync(filePath)) return { outputTokens: 0, lastLineMs: null };
-    // 文件状态
-    const stat = fs.statSync(filePath);
-    // 全文读入
-    const content = fs.readFileSync(filePath, 'utf8');
-    // 累计输出 token
-    let outputTokens = 0;
-    // 最后一行时间戳（初始未知）
-    let lastLineMs = null;
-    // Claude Code writes one transcript line per content block (thinking/text/tool_use/...) and
-    // attaches the FULL message.usage to each, so a single message would be summed N times. Count
-    // its usage once per message.id. Lines without a message.id (e.g. test fixtures) count as-is.
-    // message.id 去重集合（CC 每个内容块写一行且都带完整 usage —— 实测不去重会放大约 3 倍）
-    const counted = new Set();
-    // 逐行
-    for (const line of content.split('\n')) {
-      // 空行跳过
-      if (!line.trim()) continue;
-      // 保护块
-      try {
-        // 解析行
-        const obj = JSON.parse(line);
-        // 行时间戳
-        const ts = lineTimestamp(obj, stat.mtimeMs);
-        // 刷新"最后一行时间"（取更大者）
-        if (lastLineMs === null || ts > lastLineMs) lastLineMs = ts;
-        // 消息 ID
-        const id = obj.message?.id;
-        // 已计过 → 跳过
-        if (id && counted.has(id)) continue;
-        // 本行输出 token
-        const add = outputTokensFromObject(obj);
-        // 有效正值才累计
-        if (add > 0) {
-          // 登记 ID
-          if (id) counted.add(id);
-          // 累加
-          outputTokens += add;
-        }
-      } catch (_) {
-        // Ignore malformed jsonl lines.
-      }
+  // 累计输出 token（读失败保持 0）
+  let outputTokens = 0;
+  // 最后一行时间戳（初始未知）
+  let lastLineMs = null;
+  // 遍历每行：先刷新"最后一行时间"（对每行含重复行 —— 同消息各内容块时间戳可能差数秒，必须在去重跳过之前）→ 去重 → 提取累加
+  // Claude Code writes one transcript line per content block (thinking/text/tool_use/...) and
+  // attaches the FULL message.usage to each, so a single message would be summed N times. Count
+  // its usage once per message.id (protocol in lib/file-io.js). Lines without a message.id
+  // (e.g. test fixtures) count as-is. 实测不去重会放大约 3 倍。
+  forEachTranscriptLine(filePath, (obj, ts, line) => {
+    // 刷新"最后一行时间"（取更大者）
+    if (lastLineMs === null || ts > lastLineMs) lastLineMs = ts;
+    // 同 message.id 已计过 → 跳过（关键去重）
+    if (line.duplicate) return;
+    // 本行输出 token
+    const add = outputTokensFromObject(obj);
+    // 有效正值才累计；且只有真正计入才登记消息 ID（同原实现）
+    if (add > 0) {
+      line.countOnce();
+      outputTokens += add;
     }
-    // 返回统计
-    return { outputTokens, lastLineMs };
-  // catch → 全零
-  } catch (_) {
-    return { outputTokens: 0, lastLineMs: null };
-  }
+  });
+  // 返回统计（读失败 → 全零）
+  return { outputTokens, lastLineMs };
 }
 
 // monitor API 要求的时间参数格式 "YYYY-MM-DD HH:mm:ss"（下方是多行模板串，内部不能插注释）

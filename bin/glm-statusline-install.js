@@ -18,11 +18,20 @@ const {
   DISPLAY_FIELDS: FIELD_ORDER,
   // 字段 → 标签映射（列表文案）
   FIELD_LABELS,
-  // display 清洗
-  normalizeDisplayList,
+  // display 清洗 + 未配置回退全字段
+  displayOrDefault,
   // 按规范顺序重排（切换字段后保持稳定顺序）
   orderDisplay,
 } = require('../lib/display-fields');
+// 文件读写共享库（与核心共用；原先两处各有一份同名拷贝）
+const {
+  // 通用 JSON 读取（安装器契约：缺失/空 → {}，坏文件抛错）
+  readJsonFile,
+  // 通用 JSON 写入（2 空格缩进 + 末尾换行；出错冒泡）
+  writeJsonFile,
+  // 配置文件路径解析（env 覆盖 → 默认 + ~ 展开）
+  configFilePath,
+} = require('../lib/file-io');
 
 // 本插件源码根目录（bin/ 的上一级）
 const PLUGIN_ROOT = path.resolve(__dirname, '..');
@@ -34,9 +43,11 @@ const SETTINGS_FILE =
 // 稳定启动器路径（~/.claude/glm-statusline-launcher.js；statusLine.command 指向它而非易变的缓存路径）
 const STABLE_LAUNCHER_FILE =
   process.env.GLM_STATUSLINE_LAUNCHER_FILE || path.join(os.homedir(), '.claude', 'glm-statusline-launcher.js');
-// 状态栏用户配置文件（display）
-const CONFIG_FILE =
-  process.env.GLM_STATUSLINE_CONFIG_FILE || path.join(os.homedir(), '.claude', 'glm-statusline-config.json');
+// 状态栏用户配置文件（display）；路径解析在 lib/file-io.js（env 覆盖 → 默认 + ~ 展开）
+const CONFIG_FILE = configFilePath();
+// 安装器的 JSON 读取契约：文件缺失/为空 → 空对象，解析失败 → 抛错（与核心的静默兜底刻意相反：
+// 安装场景要让用户看到坏文件，状态栏则绝不能崩 —— 见 lib/file-io.js readJsonFile 注释）
+const STRICT_JSON_READ = { fallback: {}, throwOnParse: true };
 // "由本插件管理"的识别标记：statusLine.command 含本插件文件名即视为已接管
 const MANAGED_MARKER = 'glm-statusline.js';
 // 启动器文件名标记（同上，识别启动器式配置）
@@ -60,67 +71,33 @@ function statusLineCommand() {
   return `${shellQuote(process.execPath)} ${shellQuote(STABLE_LAUNCHER_FILE)}`;
 }
 
-// 读 Claude settings JSON（文件不存在返回空对象；解析失败抛错 —— 安装场景要让用户看到问题）
+// 读 Claude settings JSON（文件不存在/为空返回空对象；解析失败抛错 —— 安装场景要让用户看到问题）
 function readSettings() {
-  // 文件不存在 → 空对象（视为首次安装）
-  if (!fs.existsSync(SETTINGS_FILE)) return {};
-  // 保护块
-  try {
-    // 读文件并去空白
-    const raw = fs.readFileSync(SETTINGS_FILE, 'utf8').trim();
-    // 空文件 → 空对象；否则解析
-    return raw ? JSON.parse(raw) : {};
-  // catch：解析失败
-  } catch (err) {
-    // 抛出带文件路径的错误（不能静默吞掉用户的 settings 问题）
-    throw new Error(`Cannot parse ${SETTINGS_FILE}: ${err.message}`);
-  }
+  // 委托共享读取原语（STRICT_JSON_READ 即上述安装器契约）
+  return readJsonFile(SETTINGS_FILE, STRICT_JSON_READ);
 }
 
 // 写 Claude settings（2 空格缩进 + 末尾换行，与 Claude Code 手写格式一致）
 function writeSettings(settings) {
-  // 确保 ~/.claude 目录存在
-  fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
-  // 写入
-  fs.writeFileSync(SETTINGS_FILE, `${JSON.stringify(settings, null, 2)}\n`);
-}
-
-// 读状态栏配置 JSON（不存在/空文件 → 空对象；解析失败抛错）
-function readJsonFile(filePath) {
-  // 保护块
-  try {
-    // 路径为空或文件不存在 → 空对象
-    if (!filePath || !fs.existsSync(filePath)) return {};
-    // 读文件并去空白
-    const raw = fs.readFileSync(filePath, 'utf8').trim();
-    // 空文件 → 空对象；否则解析
-    return raw ? JSON.parse(raw) : {};
-  // catch：解析失败
-  } catch (err) {
-    // 抛出带路径的错误
-    throw new Error(`Cannot parse ${filePath}: ${err.message}`);
-  }
+  // 委托共享写入原语（newline：末尾换行；非原子 + 出错冒泡 —— 与原实现一致）
+  writeJsonFile(SETTINGS_FILE, settings, { newline: true });
 }
 
 // 写状态栏配置文件（同样 2 空格缩进 + 末尾换行）
 function writeConfig(config) {
-  // 确保目录存在
-  fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
-  // 写入
-  fs.writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`);
+  // 委托共享写入原语（同 writeSettings 的选项）
+  writeJsonFile(CONFIG_FILE, config, { newline: true });
 }
 
 // 从既有配置构造交互式配置的初始状态（老用户的勾选延续下来）
 function baseConfigFromFile() {
-  // 读既有配置
-  const previous = readJsonFile(CONFIG_FILE);
-  // 清洗 display 列表
-  const display = normalizeDisplayList(previous.display);
+  // 读既有配置（坏文件抛错）
+  const previous = readJsonFile(CONFIG_FILE, STRICT_JSON_READ);
   // 返回初始配置
   return {
-    // 显示字段：有配置用配置的；未配置 → 默认勾选全部字段
+    // 显示字段：有配置用配置的；未配置 → 默认勾选全部字段（清洗+回退逻辑在 lib/display-fields.js）
     //（布局已统一为分组多行 + 自动合并，配置文件里残留的 layout 键被忽略）
-    display: display.length ? display : [...FIELD_ORDER],
+    display: displayOrDefault(previous.display),
   };
 }
 

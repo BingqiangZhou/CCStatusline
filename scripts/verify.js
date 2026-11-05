@@ -545,6 +545,53 @@ function verifyInstallerWorkflow({ isolatedDefaultConfigFile, tempDir }) {
   assert.ok(!fs.existsSync(launcherFile), 'uninstall should remove the stable launcher file');
 }
 
+// Corrupt files pin the two deliberate read contracts that lib/file-io.js readJsonFile unifies:
+// the status line must silently fall back (never crash Claude Code) while the installer must fail
+// loudly (users need to see their broken settings/config). These are behavior pins of the
+// pre-existing code and must stay green through any refactor of the readers.
+function verifyCorruptFilesAreHandled({ tempDir }) {
+  // Corrupt display config -> status line treats it as unconfigured: exit 0, every field shown.
+  const corruptConfigFile = path.join(tempDir, 'corrupt-config.json');
+  fs.writeFileSync(corruptConfigFile, 'this is not json {');
+  const corruptConfig = run(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({
+      model: { display_name: 'Sonnet' },
+      context_window: { used_percentage: 12, context_window_size: 200000 },
+      transcript_path: path.join(tempDir, 'missing-transcript.jsonl'),
+    }),
+    env: baseEnv(corruptConfigFile, path.join(tempDir, 'corrupt-cache.json')),
+  });
+  assert.strictEqual(corruptConfig.status, 0, corruptConfig.stderr);
+  assert.match(corruptConfig.stdout, /5H/);
+  assert.match(corruptConfig.stdout, /Context/);
+
+  // Corrupt settings -> install fails loudly instead of silently ignoring the user's file.
+  const corruptSettingsFile = path.join(tempDir, 'corrupt-settings.json');
+  fs.writeFileSync(corruptSettingsFile, 'this is not json {');
+  const installFailure = run(process.execPath, ['bin/glm-statusline-install.js', 'install'], {
+    env: {
+      GLM_STATUSLINE_SETTINGS_FILE: corruptSettingsFile,
+      GLM_STATUSLINE_LAUNCHER_FILE: path.join(tempDir, 'corrupt-launcher.js'),
+      GLM_STATUSLINE_PLUGIN_CACHE_ROOT: path.join(tempDir, 'missing-plugin-cache'),
+    },
+  });
+  assert.notStrictEqual(installFailure.status, 0);
+  assert.match(installFailure.stderr, /Cannot parse/);
+
+  // Corrupt config -> configure fails loudly AND throws before its first writeConfig, so the
+  // broken file is left untouched (a fallback-first reader that writes later would clobber it).
+  const configureFailure = run(process.execPath, ['bin/glm-statusline-install.js', 'configure'], {
+    input: 'q\n',
+    env: {
+      GLM_STATUSLINE_CONFIG_FILE: corruptConfigFile,
+      GLM_STATUSLINE_CACHE_FILE: path.join(tempDir, 'corrupt-cache.json'),
+    },
+  });
+  assert.notStrictEqual(configureFailure.status, 0);
+  assert.match(configureFailure.stderr, /Cannot parse/);
+  assert.strictEqual(fs.readFileSync(corruptConfigFile, 'utf8'), 'this is not json {');
+}
+
 async function verifyEffortAndContextFix({ tempDir }) {
   // Effort segment: level present renders it (Claude Code v2.1.119+ sends effort.level).
   const effortConfig = path.join(tempDir, 'effort-config.json');
@@ -1060,6 +1107,7 @@ async function main() {
   await verifyApiBackedStatusLine(context);
   await verifyDebugLogging(context);
   verifyInstallerWorkflow(context);
+  verifyCorruptFilesAreHandled(context);
   await verifyEffortAndContextFix(context);
   await verifyTokenOutputSpeed(context);
   await verifyGroupedLayout(context);

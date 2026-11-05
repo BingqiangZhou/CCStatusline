@@ -450,6 +450,7 @@ CCStatusline/
 │   └── claude-code-skills-and-extensions-guide.md  # Skill 与扩展能力文档
 ├── lib/
 │   ├── display-fields.js            # 状态栏字段定义与配置归一化
+│   ├── file-io.js                   # 共享文件读写：JSON 读取/写入（原子写）、transcript JSONL 遍历去重、配置路径解析
 │   └── statusline-format.js         # 进度条、token、时间和自动换行格式化
 ├── notes/                           # Claude Code 插件系统学习笔记
 │   ├── 01-插件系统概览.md
