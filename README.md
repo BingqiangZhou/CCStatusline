@@ -151,7 +151,7 @@ GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░�
 **来自 Claude Code 会话 JSON**（statusLine 经 stdin 收到的当前会话信息）：
 
 - `context`：`context_window.used_percentage`。会话刚开始或 `/compact` 后该值可能为 `null`，此时沿用该会话上一次的已知值（按 `session_id` 缓存），避免进度条闪成 0%；首次仍无值时显示 `--%`。`context_window_size` 没给时用 `GLM_STATUSLINE_CONTEXT_WINDOW`（默认 `200000`）。
-- `model`：按 Claude Code 当前模型名（Opus / Sonnet / Haiku）映射到环境变量 `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL`（`mapClaudeModelToGlm`）。
+- `model`：按 Claude Code 当前模型名（Opus / Sonnet / Haiku）映射到环境变量 `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL`（`mapClaudeModelToGlm`，`lib/model-mapping.js`）。
 - `effort`：推理 effort 等级，直接读 `effort.level`（需 Claude Code v2.1.119+）；模型不支持或缺失时显示 `--`。
 
 **本地从 transcript 计算**（不请求任何远端接口）：
@@ -502,8 +502,15 @@ CCStatusline/
 │   └── claude-code-skills-and-extensions-guide.md  # Skill 与扩展能力文档
 ├── lib/
 │   ├── display-fields.js            # 状态栏字段定义与配置归一化
-│   ├── file-io.js                   # 共享文件读写：JSON 读取/写入（原子写）、transcript JSONL 遍历去重、配置路径解析
-│   └── statusline-format.js         # 进度条、token、时间和自动换行格式化
+│   ├── file-io.js                   # 共享文件读写：JSON 读取/写入（原子写）、transcript JSONL 遍历去重、配置路径解析、调试日志
+│   ├── interactive-configure.js     # 交互式配置界面（勾选清单 + 预览 + 即时保存）
+│   ├── model-mapping.js             # Claude 模型名 → GLM 模型名映射 + effort 档位读取
+│   ├── monitor-api.js               # 监控 API 客户端：配额/用量抓取（60s 缓存 + 多级回退）
+│   ├── quota-parsing.js             # 兼容式解析（纯函数）：quota/limit 与 model-usage 响应归一
+│   ├── session-metrics.js           # 会话指标：上下文防闪烁保持 + 输出速度解析（增量/锚定）
+│   ├── status-cache.js              # 共享缓存层：原子写、TTL 判断、per-session 条目清理
+│   ├── statusline-format.js         # 进度条、token、时间、速度和自动换行格式化
+│   └── transcript-stats.js          # transcript JSONL 统计：token/输出提取 + 会话/速度读取器
 ├── notes/                           # Claude Code 插件系统学习笔记
 │   ├── 01-插件系统概览.md
 │   ├── 02-Skill.md
