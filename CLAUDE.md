@@ -89,15 +89,15 @@ Touches these places, in order:
 - `README.md` — the field table, the "字段数据来源（每项怎么来的）" subsection, and the configure / layout examples.
 - a new assertion in `scripts/verify.js`.
 
-At release time, also add the entry to **both** `CHANGELOG.md` (English) and `CHANGELOG.zh.md` (Chinese). Note `verify.js` also asserts README content (must contain `兼容式解析`, `test/fixtures`, `lib/`, etc.) and forbids machine-specific absolute paths in docs — README edits can break the build.
+At release time, also add the entry to `CHANGELOG.md` — it is the **sole changelog, Chinese-only** (the English file was removed; `CHANGELOG.zh.md` was renamed into `CHANGELOG.md`). Note `verify.js` also asserts README content (must contain `兼容式解析`, `test/fixtures`, `lib/`, etc.) and forbids machine-specific absolute paths in docs — README edits can break the build.
 
 ## Releasing
 
 A release is **commit + tag + push** — the git tag alone makes the version installable (`claude plugin update` resolves versions from tags). Steps:
 1. Bump the version in all three manifests (`package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) — they must stay identical (`verify.js` asserts it).
-2. Add a `## X.Y.Z - YYYY-MM-DD` entry to **both** `CHANGELOG.md` and `CHANGELOG.zh.md`.
+2. Add a `## X.Y.Z - YYYY-MM-DD` entry to `CHANGELOG.md` (Chinese-only, sole changelog).
 3. `npm test`.
-4. Commit the feature/docs change first, then a `chore: release glm statusline X.Y.Z` commit carrying the three manifests + both changelogs.
+4. Commit the feature/docs change first, then a `chore: release glm statusline X.Y.Z` commit carrying the three manifests + the changelog.
 5. Tag `vX.Y.Z` (annotated: `git tag -a vX.Y.Z -m "Release glm statusline X.Y.Z"`) and push the commit and the tag.
 
-The GitHub Actions workflow `.github/workflows/release.yml` triggers on a `v[0-9]*` tag push and creates a GitHub Release named `GLM StatusLine <version>` whose body is the matching entry pulled from `CHANGELOG.md` (English). No manual `gh release create` — and it won't fire if the workflow file isn't on `main`.
+The GitHub Actions workflow `.github/workflows/release.yml` triggers on a `v[0-9]*` tag push and creates a GitHub Release named `GLM StatusLine <version>` whose body is the matching entry pulled from `CHANGELOG.md` (Chinese). No manual `gh release create` — and it won't fire if the workflow file isn't on `main`.

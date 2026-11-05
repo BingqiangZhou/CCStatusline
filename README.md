@@ -535,8 +535,7 @@ CCStatusline/
 │   └── uninstall/SKILL.md           # /glm-statusline:uninstall
 ├── test/fixtures/                   # GLM / Z.ai monitor API 样例响应
 ├── package.json
-├── CHANGELOG.md                      # 英文更新日志
-├── CHANGELOG.zh.md                   # 中文更新日志
+├── CHANGELOG.md                      # 更新日志（中文）
 └── README.md
 ```
 

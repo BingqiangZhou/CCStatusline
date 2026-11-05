@@ -1,10 +1,10 @@
 name: Release
 
 # When a version tag (vX.Y.Z) is pushed, publish a GitHub Release whose body is
-# the matching changelog entry in BOTH English (CHANGELOG.md) and Chinese
-# (CHANGELOG.zh.md), plus links to both files. The tag itself already makes the
-# version installable via `claude plugin update`; this Release just surfaces the
-# changelog on the GitHub UI.
+# the matching changelog entry from CHANGELOG.md (Chinese-only, sole changelog),
+# plus a link to the file. The tag itself already makes the version installable
+# via `claude plugin update`; this Release just surfaces the changelog on the
+# GitHub UI.
 on:
   push:
     tags:
@@ -27,7 +27,7 @@ jobs:
           echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           echo "number=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build release body (bilingual changelog + links)
+      - name: Build release body (changelog entry + link)
         id: changelog
         run: |
           version="${{ steps.version.outputs.number }}"
@@ -56,19 +56,16 @@ jobs:
             ' "$1"
           }
 
-          en=$(extract CHANGELOG.md "$version")
-          zh=$(extract CHANGELOG.zh.md "$version")
-          [ -z "$(printf '%s' "$en" | tr -d '[:space:]')" ] && en="No CHANGELOG.md entry found for version ${version}."
-          [ -z "$(printf '%s' "$zh" | tr -d '[:space:]')" ] && zh="暂无该版本的中文更新日志条目（${version}）。"
+          zh=$(extract CHANGELOG.md "$version")
+          [ -z "$(printf '%s' "$zh" | tr -d '[:space:]')" ] && zh="暂无该版本的更新日志条目（${version}）。"
 
-          en_url="https://github.com/${repo}/blob/${tag}/CHANGELOG.md"
-          zh_url="https://github.com/${repo}/blob/${tag}/CHANGELOG.zh.md"
+          zh_url="https://github.com/${repo}/blob/${tag}/CHANGELOG.md"
 
           # Multi-line value via the heredoc delimiter syntax.
           {
             echo "body<<RELEASE_EOF"
-            printf '## English\n\n%s\n\n## 中文\n\n%s\n\n---\n\n- Full changelog (English): [CHANGELOG.md](%s)\n- 完整更新日志（中文）：[CHANGELOG.zh.md](%s)\n' \
-              "$en" "$zh" "$en_url" "$zh_url"
+            printf '## 更新日志\n\n%s\n\n---\n\n- 完整更新日志：[CHANGELOG.md](%s)\n' \
+              "$zh" "$zh_url"
             echo "RELEASE_EOF"
           } >> "$GITHUB_OUTPUT"
 
