@@ -50,12 +50,10 @@ const {
   // 配置文件路径解析（env 覆盖 → 默认 + ~ 展开）
   configFilePath,
 } = require('../lib/file-io');
-// transcript 统计库：两个 JSONL 读取器（速度与会话字段的数值来源）
+// transcript 统计库：会话 token 读取器（session 字段的数值来源；速度用的读取器在 lib/session-metrics.js 内部消费）
 const {
   // 会话 token 统计（session 字段）
   readJsonlTokenStats,
-  // 输出 token 统计 + 最后一行时间戳（速度字段）
-  readJsonlOutputStats,
 } = require('../lib/transcript-stats');
 // 共享缓存层：读/写（一次读一次写不变量的载体；TTL 判断与条目清理由 lib/session-metrics.js 使用）
 const {
@@ -110,8 +108,6 @@ const {
   formatSpeed,
   // token 数 → "42.8M" 式缩写
   formatTokens,
-  // 各形态时间 → 毫秒时间戳（失败为 null）
-  parseResetTime,
   // 渲染 "██░░░░ 42%" 进度条
   renderBar,
   // 相邻行宽度够时把多行段数组合并成一行
@@ -198,6 +194,7 @@ function mergeEnvFromSettings(sessionContext) {
   return { ...merged, ...process.env };
 }
 
+// --plan-details 的单行额度格式化："标签: 42% · 1.2M/5M · resets 18:30"
 function formatLimitLine(label, detail, options = {}) {
   // 百分比文本（读不到 → "unavailable"）
   const percent = Number.isFinite(detail?.percent) ? `${detail.percent}%` : 'unavailable';
