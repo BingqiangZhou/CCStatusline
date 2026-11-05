@@ -151,7 +151,7 @@ glm-statusline.js
 ### 5.3 数据流
 
 ```text
-Claude Code 调用 statusLine command（随会话消息更新，最快约 300ms 一帧；空闲时按 refreshInterval: 5 保底每 5 秒一次）
+Claude Code 调用 statusLine command（随会话消息更新，事件驱动、约 300ms 防抖合并；空闲时按 refreshInterval: 30 保底每 30 秒一次——远端字段受 60 秒 API 缓存约束，空闲时最快每分钟一档新值，30 秒已足够）
   ↓
 stdin JSON（model、context_window、transcript_path、workspace）
   ↓

@@ -21,8 +21,8 @@
  *   },
  *   "statusLine": {
  *     "type": "command",
- *     "command": "node ~/.claude/glm-statusline.js",
- *     "refreshInterval": 5,
+ *     "command": "node ~/.claude/glm-statusline-launcher.js",
+ *     "refreshInterval": 30,
  *     "padding": 0
  *   }
  * }

@@ -466,7 +466,7 @@ function verifyInstallerWorkflow({ isolatedDefaultConfigFile, tempDir }) {
   assert.ok(fs.existsSync(launcherFile), 'install should write a stable launcher file');
   assert.match(installedSettings.statusLine.command, /glm-statusline-launcher\.js/);
   assert.doesNotMatch(installedSettings.statusLine.command, /plugins\/cache\/.*\/\d+\.\d+\.\d+\/bin\/glm-statusline\.js/);
-  assert.strictEqual(installedSettings.statusLine.refreshInterval, 5);
+  assert.strictEqual(installedSettings.statusLine.refreshInterval, 30);
   assert.strictEqual(installedSettings.statusLine.padding, 0);
   assert.strictEqual(installedSettings.env.GLM_STATUSLINE_PLAN, 'GLM Lite');
   assert.match(install.stdout, /\/glm-statusline:configure/);
