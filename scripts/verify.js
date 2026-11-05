@@ -155,9 +155,12 @@ function verifyDefaultStatusLine(isolatedDefaultConfigFile) {
     env: {
       ANTHROPIC_AUTH_TOKEN: '',
       ANTHROPIC_BASE_URL: '',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
+      GLM_STATUSLINE_PLAN: '',
       GLM_STATUSLINE_CONFIG_FILE: isolatedDefaultConfigFile,
       GLM_STATUSLINE_CACHE_TTL_MS: '1',
       COLUMNS: '120',
+      CLAUDE_CODE_EFFORT_LEVEL: '',
     },
   });
   assert.strictEqual(status.status, 0, status.stderr);
@@ -165,13 +168,18 @@ function verifyDefaultStatusLine(isolatedDefaultConfigFile) {
   assert.match(status.stdout, /MCP/);
   assert.match(status.stdout, /Session 0/);
   assert.match(status.stdout, /Day 0/);
-  assert.doesNotMatch(status.stdout, /Context/);
-  assert.doesNotMatch(status.stdout, /Effort/);
+  assert.match(status.stdout, /30D 0/);
   assert.doesNotMatch(status.stdout, /Sess:/);
   assert.doesNotMatch(status.stdout, /Day:/);
-  assert.doesNotMatch(status.stdout, /30D:/);
-  // Default layout is grouped: the default fields (5h, mcp, session, day) span two rows.
-  assert.strictEqual(status.stdout.trim().split('\n').length, 2);
+  // Default is every field, rendered as grouped rows that auto-merge when they fit one
+  // terminal line. At COLUMNS=120 the row1+row2 width is 113 (fits; model/effort/plan pinned
+  // via env overrides for determinism), row1+row2+row3 is 181 (doesn't) -> exactly 2 lines.
+  const defaultLines = status.stdout.trim().split('\n');
+  assert.strictEqual(defaultLines.length, 2, status.stdout);
+  assert.match(defaultLines[0], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s │ Context .+ 12% │ Session 0 │ Day 0 │ 30D 0$/);
+  // Exact bars pin the documented ?? 0 invariant: absent 5h/mcp readings must
+  // render as empty bars with 0% — never --%.
+  assert.match(defaultLines[1], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
 }
 
 function writeTranscriptFixture(transcriptFile) {
@@ -231,19 +239,23 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
       env: {
         ANTHROPIC_AUTH_TOKEN: 'test-token',
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
         GLM_STATUSLINE_CACHE_FILE: cacheFile,
         GLM_STATUSLINE_CONFIG_FILE: isolatedDefaultConfigFile,
         GLM_STATUSLINE_CACHE_TTL_MS: '60000',
-        COLUMNS: '120',
+        COLUMNS: '100',
+        CLAUDE_CODE_EFFORT_LEVEL: '',
       },
     });
     assert.strictEqual(apiUsage.status, 0, apiUsage.stderr);
-    // Default layout is grouped: Session/Day on the conversation row, 5H/MCP on the quota row.
+    // Default is every field, grouped rows auto-merge only when they fit. At COLUMNS=100
+    // row1+row2 is 118 (doesn't fit) -> three separate category rows. Model name is pinned
+    // via an env override; plan name comes from the fixture API.
     const apiLines = apiUsage.stdout.trim().split('\n');
-    assert.strictEqual(apiLines.length, 2);
-    assert.match(apiLines[0], /^Session 2K │ Day 3K$/);
-    assert.match(apiLines[1], /^5H .+ 10% @18:30 │ MCP .+ 20% @06-14$/);
-    assert.doesNotMatch(apiUsage.stdout, /Context/);
+    assert.strictEqual(apiLines.length, 3, apiUsage.stdout);
+    assert.match(apiLines[0], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s$/);
+    assert.match(apiLines[1], /^Context .+ 1% │ Session 2K │ Day 3K │ 30D 5\.98B$/);
+    assert.match(apiLines[2], /^GLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% @06-14$/);
     assert.doesNotMatch(apiUsage.stdout, /Sess:/);
     assert.doesNotMatch(apiUsage.stdout, /30D:/);
 
@@ -273,14 +285,17 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
       assert.match(url.searchParams.get('endTime') || '', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
     }
     const testCache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-    assert.ok(Object.keys(testCache).every((key) => key.includes(`http://127.0.0.1:${port}`)));
+    // Endpoint-scoped entries (quota:/model:) must be keyed by base URL. Per-session
+    // entries (speed:/context:) are keyed by session_id by design and excluded here.
+    const endpointKeys = Object.keys(testCache).filter((key) => key.startsWith('quota:') || key.startsWith('model:'));
+    assert.ok(endpointKeys.length >= 3, Object.keys(testCache).join(', '));
+    assert.ok(endpointKeys.every((key) => key.includes(`http://127.0.0.1:${port}`)));
 
     fs.writeFileSync(
       configFile,
       JSON.stringify(
         {
           display: ['plan', '5h', 'mcp', 'day', '30d'],
-          layout: 'single',
         },
         null,
         2
@@ -302,7 +317,9 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
       },
     });
     assert.strictEqual(configuredStatus.status, 0, configuredStatus.stderr);
-    assert.match(configuredStatus.stdout, /^GLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% @06-14 │ Day 3K │ 30D 5\.98B\s*$/);
+    // Group order governs on-screen order (day/30d row before plan/5h/mcp row); at
+    // COLUMNS=120 the two rows' combined width (96) fits a single line -> merged.
+    assert.match(configuredStatus.stdout, /^Day 3K │ 30D 5\.98B │ GLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% @06-14\s*$/);
     assert.doesNotMatch(configuredStatus.stdout, /Context/);
     assert.doesNotMatch(configuredStatus.stdout, /Session/);
 
@@ -323,9 +340,10 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
     });
     assert.strictEqual(wrappedStatus.status, 0, wrappedStatus.stderr);
     const wrappedLines = wrappedStatus.stdout.trim().split('\n');
-    assert.strictEqual(wrappedLines.length, 2);
-    assert.match(wrappedLines[0], /^GLM Test │ 5H .+ 10% @18:30$/);
-    assert.match(wrappedLines[1], /^MCP .+ 20% @06-14 │ Day 3K │ 30D 5\.98B$/);
+    assert.strictEqual(wrappedLines.length, 3, wrappedStatus.stdout);
+    assert.match(wrappedLines[0], /^Day 3K │ 30D 5\.98B$/);
+    assert.match(wrappedLines[1], /^GLM Test │ 5H .+ 10% @18:30$/);
+    assert.match(wrappedLines[2], /^MCP .+ 20% @06-14$/);
     assert.ok(wrappedLines.every((line) => line.length <= 52), wrappedStatus.stdout);
 
     const contextConfigFile = path.join(tempDir, 'context-wrap-config.json');
@@ -334,7 +352,6 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
       JSON.stringify(
         {
           display: ['plan', '5h', 'mcp', 'context', 'model', 'session', 'day', '30d'],
-          layout: 'single',
         },
         null,
         2
@@ -349,10 +366,11 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
       env: {
         ANTHROPIC_AUTH_TOKEN: 'test-token',
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
         GLM_STATUSLINE_CACHE_FILE: cacheFile,
         GLM_STATUSLINE_CONFIG_FILE: contextConfigFile,
         GLM_STATUSLINE_CACHE_TTL_MS: '60000',
-        COLUMNS: '80',
+        COLUMNS: '70',
       },
     });
     assert.strictEqual(contextWrappedStatus.status, 0, contextWrappedStatus.stderr);
@@ -377,7 +395,7 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
       },
     });
     assert.strictEqual(preview.status, 0, preview.stderr);
-    assert.match(preview.stdout, /^Preview:\nGLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% @06-14 │ Day 3K │ 30D 5\.98B\s*$/);
+    assert.match(preview.stdout, /^Preview:\nDay 3K │ 30D 5\.98B │ GLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% @06-14\s*$/);
   } finally {
     await close(server);
   }
@@ -480,10 +498,15 @@ function verifyInstallerWorkflow({ isolatedDefaultConfigFile, tempDir }) {
   assert.strictEqual(interactive.status, 0, interactive.stderr);
   assert.match(interactive.stdout, /Select fields to show/);
   assert.ok((interactive.stdout.match(/Preview:/g) || []).length >= 2);
+  // Fresh configure starts with every field selected; pressing 1 deselects plan.
   assert.match(interactive.stdout, /1\. \[x\] plan/);
   assert.match(interactive.stdout, /3\. \[x\] mcp/);
+  assert.match(interactive.stdout, /1\. \[ \] plan/);
   const interactiveConfig = JSON.parse(fs.readFileSync(interactiveConfigFile, 'utf8'));
-  assert.deepStrictEqual(interactiveConfig.display, ['plan', '5h', 'mcp', 'session', 'day']);
+  assert.deepStrictEqual(
+    interactiveConfig.display,
+    ['5h', 'mcp', 'context', 'model', 'effort', 'session', 'speed', 'day', '30d']
+  );
 
   const launcherStatus = run(process.execPath, [launcherFile], {
     input: JSON.stringify({
@@ -494,18 +517,21 @@ function verifyInstallerWorkflow({ isolatedDefaultConfigFile, tempDir }) {
     env: {
       ANTHROPIC_AUTH_TOKEN: '',
       ANTHROPIC_BASE_URL: '',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
+      GLM_STATUSLINE_PLAN: '',
       GLM_STATUSLINE_CONFIG_FILE: isolatedDefaultConfigFile,
       GLM_STATUSLINE_CACHE_TTL_MS: '1',
       COLUMNS: '120',
+      CLAUDE_CODE_EFFORT_LEVEL: '',
     },
   });
   assert.strictEqual(launcherStatus.status, 0, launcherStatus.stderr);
-  // Default layout is grouped: Session/Day on row 2, 5H/MCP on row 3.
+  // Default is every field; grouped rows auto-merge at COLUMNS=120 into two lines
+  // (row1+row2 fit, row3 doesn't). Model/effort/plan pinned via env overrides.
   const launcherLines = launcherStatus.stdout.trim().split('\n');
-  assert.strictEqual(launcherLines.length, 2);
-  assert.match(launcherLines[0], /^Session 0 │ Day 0$/);
-  assert.match(launcherLines[1], /^5H .+ @--:-- │ MCP .+ 0% @--$/);
-  assert.doesNotMatch(launcherStatus.stdout, /Context/);
+  assert.strictEqual(launcherLines.length, 2, launcherStatus.stdout);
+  assert.match(launcherLines[0], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s │ Context .+ 12% │ Session 0 │ Day 0 │ 30D 0$/);
+  assert.match(launcherLines[1], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
 
   const uninstall = run(process.execPath, ['bin/glm-statusline-install.js', 'uninstall'], {
     env: {
@@ -707,9 +733,10 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   assert.strictEqual(fallbackSecond.status, 0, fallbackSecond.stderr);
   assert.match(fallbackSecond.stdout, /Speed \d+ t\/s · Avg -- t\/s/);
 
-  // 5. Speed shares the status line with another field: speed sits on its own trailing line.
+  // 5. Speed shares the status line with another field: the two category rows merge onto one
+  //    line (group order puts speed's row first) whenever the combined width fits.
   const mixedConfig = path.join(tempDir, 'speed-mixed-config.json');
-  fs.writeFileSync(mixedConfig, JSON.stringify({ display: ['session', 'speed'], layout: 'single' }, null, 2));
+  fs.writeFileSync(mixedConfig, JSON.stringify({ display: ['session', 'speed'] }, null, 2));
   const mixedCache = path.join(tempDir, 'speed-mixed-cache.json');
   fs.writeFileSync(mixedCache, '{}');
   const mixedTranscript = path.join(tempDir, 'speed-mixed-transcript.jsonl');
@@ -735,10 +762,8 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   });
   assert.strictEqual(mixed.status, 0, mixed.stderr);
   const mixedLines = mixed.stdout.trim().split('\n');
-  assert.strictEqual(mixedLines.length, 2, 'speed sits on its own line below the main fields');
-  assert.match(mixedLines[0], /Session/);
-  assert.doesNotMatch(mixedLines[0], /Speed/);
-  assert.match(mixedLines[1], /^Speed \d+ t\/s · Avg \d+ t\/s$/);
+  assert.strictEqual(mixedLines.length, 1, 'session+speed rows merge onto one line');
+  assert.match(mixedLines[0], /^Speed \d+ t\/s · Avg \d+ t\/s │ Session \d/);
 
   // 6. /clear-style reset: cumulative output drops below the cached baseline (new session under a
   //    reused/lagging session_id, or a seed tick that captured a stale larger transcript). Without
@@ -888,14 +913,14 @@ async function verifyTokenOutputSpeed({ tempDir }) {
 }
 
 async function verifyGroupedLayout({ tempDir }) {
-  // 1. All fields + grouped layout -> exactly 3 category lines (model / session / quota).
+  // 1. All fields on a narrow terminal -> exactly 3 category lines (model / session / quota),
+  //    no merging (row1+row2 = 115 columns > 80). Model/plan pinned via env overrides.
   const groupedConfigFile = path.join(tempDir, 'grouped-layout-config.json');
   fs.writeFileSync(
     groupedConfigFile,
     JSON.stringify(
       {
         display: ['plan', '5h', 'mcp', 'context', 'effort', 'session', 'model', 'day', '30d', 'speed'],
-        layout: 'grouped',
       },
       null,
       2
@@ -903,24 +928,79 @@ async function verifyGroupedLayout({ tempDir }) {
   );
   const groupedCache = path.join(tempDir, 'grouped-layout-cache.json');
   fs.writeFileSync(groupedCache, '{}');
+  const groupedInput = JSON.stringify({
+    model: { display_name: 'Sonnet' },
+    effort: { level: 'high' },
+    context_window: { used_percentage: 12, context_window_size: 200000 },
+  });
+  const groupedEnv = (columns) => ({
+    ...baseEnv(groupedConfigFile, groupedCache),
+    COLUMNS: columns,
+    ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
+    GLM_STATUSLINE_PLAN: '',
+  });
   const grouped = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
-    input: JSON.stringify({
-      model: { display_name: 'Sonnet' },
-      effort: { level: 'high' },
-      context_window: { used_percentage: 12, context_window_size: 200000 },
-    }),
-    env: baseEnv(groupedConfigFile, groupedCache),
+    input: groupedInput,
+    env: groupedEnv('80'),
   });
   assert.strictEqual(grouped.status, 0, grouped.stderr);
   const groupedLines = grouped.stdout.trim().split('\n');
   assert.strictEqual(groupedLines.length, 3, `expected 3 grouped lines, got:\n${grouped.stdout}`);
-  assert.match(groupedLines[0], /^Model .+ │ Effort high │ Speed/);
+  assert.match(groupedLines[0], /^Model GLM-test │ Effort high │ Speed/);
   assert.match(groupedLines[1], /^Context .+ │ Session 0 │ Day 0 │ 30D 0$/);
-  assert.match(groupedLines[2], /^GLM │ 5H .+ @--:-- │ MCP .+ @--$/);
+  assert.match(groupedLines[2], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
+
+  // 1b. Auto-merge: COLUMNS=130 fits row1+row2 (115) but not all three rows (183) -> 2 lines.
+  const groupedWide = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: groupedInput,
+    env: groupedEnv('130'),
+  });
+  assert.strictEqual(groupedWide.status, 0, groupedWide.stderr);
+  const wideLines = groupedWide.stdout.trim().split('\n');
+  assert.strictEqual(wideLines.length, 2, `expected 2 merged lines, got:\n${groupedWide.stdout}`);
+  assert.match(wideLines[0], /^Model GLM-test │ Effort high │ Speed .+ │ Context .+ 12% │ Session 0 │ Day 0 │ 30D 0$/);
+  assert.match(wideLines[1], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
+
+  // 1c. Auto-merge: COLUMNS=200 fits all three rows (183) -> a single line.
+  const groupedUltra = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: groupedInput,
+    env: groupedEnv('200'),
+  });
+  assert.strictEqual(groupedUltra.status, 0, groupedUltra.stderr);
+  const ultraLines = groupedUltra.stdout.trim().split('\n');
+  assert.strictEqual(ultraLines.length, 1, `expected 1 merged line, got:\n${groupedUltra.stdout}`);
+  assert.match(
+    ultraLines[0],
+    /^Model GLM-test │ Effort high │ Speed .+ │ Context .+ 12% │ Session 0 │ Day 0 │ 30D 0 │ GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/
+  );
+
+  // 1d. Auto-merge picks up mid-stream: a wide row1 that can't take row2 still lets row2+row3
+  //     merge (COLUMNS=60: row1=56 alone, row1+row2=115 doesn't fit, row2+row3=31 does).
+  const bigRowOneConfigFile = path.join(tempDir, 'grouped-big-row1-config.json');
+  fs.writeFileSync(
+    bigRowOneConfigFile,
+    JSON.stringify({ display: ['model', 'effort', 'speed', 'session', 'day', '30d', 'plan'] }, null, 2)
+  );
+  const bigRowOneCache = path.join(tempDir, 'grouped-big-row1-cache.json');
+  fs.writeFileSync(bigRowOneCache, '{}');
+  const bigRowOne = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
+    input: groupedInput,
+    env: {
+      ...baseEnv(bigRowOneConfigFile, bigRowOneCache),
+      COLUMNS: '60',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
+      GLM_STATUSLINE_PLAN: '',
+    },
+  });
+  assert.strictEqual(bigRowOne.status, 0, bigRowOne.stderr);
+  const bigRowOneLines = bigRowOne.stdout.trim().split('\n');
+  assert.strictEqual(bigRowOneLines.length, 2, `expected row1 alone + merged row2+row3, got:\n${bigRowOne.stdout}`);
+  assert.match(bigRowOneLines[0], /^Model GLM-test │ Effort high │ Speed -- t\/s · Avg -- t\/s$/);
+  assert.match(bigRowOneLines[1], /^Session 0 │ Day 0 │ 30D 0 │ GLM$/);
 
   // 2. In grouped mode, speed shares its row (model / effort / speed), no dedicated trailing line.
   const speedConfig = path.join(tempDir, 'grouped-speed-config.json');
-  fs.writeFileSync(speedConfig, JSON.stringify({ display: ['model', 'speed'], layout: 'grouped' }, null, 2));
+  fs.writeFileSync(speedConfig, JSON.stringify({ display: ['model', 'speed'] }, null, 2));
   const speedCache = path.join(tempDir, 'grouped-speed-cache.json');
   fs.writeFileSync(speedCache, '{}');
   const speedTranscript = path.join(tempDir, 'grouped-speed-transcript.jsonl');
