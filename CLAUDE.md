@@ -11,14 +11,14 @@ A Claude Code **status line plugin** ("GLM StatusLine") that shows GLM / Z.ai us
 ## Commands
 
 ```bash
-npm test                              # runs scripts/verify.js — the only test harness
+npm test                              # runs test/test.js — the only test harness
 npm run statusline                    # runs bin/glm-statusline.js (pipes a session JSON via stdin)
 node bin/glm-statusline.js --plan-details # detailed plan view
 node bin/glm-statusline.js --preview      # status line with a "Preview:" prefix
 node bin/glm-statusline-install.js install|configure|uninstall [--force]|print-command
 ```
 
-`npm test` is the gate. It has no test framework — it's plain `assert` plus a local Node `http` fixture server (`createFixtureApiServer`) serving `test/fixtures/*.json`. It spawns the real `bin/` scripts as child processes. When debugging, read `scripts/verify.js` directly; each `verify*` function is an isolated scenario you can lift into a scratch script.
+`npm test` is the gate. It has no test framework — it's plain `assert` plus a local Node `http` fixture server (`createFixtureApiServer`) serving `test/fixtures/*.json`. It spawns the real `bin/` scripts as child processes. When debugging, read `test/test.js` directly; each `verify*` function is an isolated scenario you can lift into a scratch script.
 
 To run the status line by hand the way Claude Code does, feed it session JSON on stdin:
 ```bash
@@ -51,7 +51,7 @@ Two layers; read top-down. (The core used to live at the repo root with `bin/glm
 - `lib/session-metrics.js` — per-session metrics: `getContextInfo`, `resolveContextPercent` (flicker fix), `anchoredAverage`, `resolveSpeed` (reset re-seed, anchored average, idle resilience — all invariant comment blocks live here), plus private `DEFAULT_CONTEXT_WINDOW`/`SPEED_MIN_DENOM_S`.
 - `lib/interactive-configure.js` — the `/glm-statusline:configure` field-selector UI (checklist + preview + instant save; non-TTY fd-0 and TTY readline paths). `renderPreview` stays in the installer and is injected as a callback (`configure(args, { renderPreview })`); its `baseConfigFromFile()` throwing read precedes any write so a corrupt config is never silently overwritten.
 
-**Plugin packaging:** `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` (local marketplace `bingqiangzhou-tools`, `source: "./"`). The version string in `package.json`, `plugin.json`, and `marketplace.json` **must stay identical** — `verify.js` asserts all three match and also asserts no version number is hardcoded in the verifier itself.
+**Plugin packaging:** `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` (local marketplace `bingqiangzhou-tools`, `source: "./"`). The version string in `package.json`, `plugin.json`, and `marketplace.json` **must stay identical** — `test.js` asserts all three match and also asserts no version number is hardcoded in the verifier itself.
 
 **Skills (`skills/`):** `install`, `configure`, `plan-details`, `uninstall` → `/glm-statusline:*` commands. Each `SKILL.md` just runs a `bin/` command. They carry `disable-model-invocation: true`; `configure` is interactive-only and rejects arguments.
 
@@ -87,14 +87,14 @@ Touches these places, in order:
 - `lib/display-fields.js` — add to `DISPLAY_FIELDS` + `FIELD_LABELS`, and place it in the right `FIELD_GROUPS` row so it lands on the correct grouped-layout line.
 - the `fields` map in `renderStatusLine` (`bin/glm-statusline.js`).
 - `README.md` — the field table, the "字段数据来源（每项怎么来的）" subsection, and the configure / layout examples.
-- a new assertion in `scripts/verify.js`.
+- a new assertion in `test/test.js`.
 
-At release time, also add the entry to `CHANGELOG.md` — it is the **sole changelog, Chinese-only** (the English file was removed; `CHANGELOG.zh.md` was renamed into `CHANGELOG.md`). Note `verify.js` also asserts README content (must contain `兼容式解析`, `test/fixtures`, `lib/`, etc.) and forbids machine-specific absolute paths in docs — README edits can break the build.
+At release time, also add the entry to `CHANGELOG.md` — it is the **sole changelog, Chinese-only** (the English file was removed; `CHANGELOG.zh.md` was renamed into `CHANGELOG.md`). Note `test.js` also asserts README content (must contain `兼容式解析`, `test/fixtures`, `lib/`, etc.) and forbids machine-specific absolute paths in docs — README edits can break the build.
 
 ## Releasing
 
 A release is **commit + tag + push** — the git tag alone makes the version installable (`claude plugin update` resolves versions from tags). Steps:
-1. Bump the version in all three manifests (`package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) — they must stay identical (`verify.js` asserts it).
+1. Bump the version in all three manifests (`package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) — they must stay identical (`test.js` asserts it).
 2. Add a `## X.Y.Z - YYYY-MM-DD` entry to `CHANGELOG.md` (Chinese-only, sole changelog).
 3. `npm test`.
 4. Commit the feature/docs change first, then a `chore: release glm statusline X.Y.Z` commit carrying the three manifests + the changelog.

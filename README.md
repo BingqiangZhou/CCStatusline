@@ -526,14 +526,14 @@ CCStatusline/
 │   └── archive/                     # 早期笔记归档
 │       ├── old-第一篇-单文件状态栏笔记.md
 │       └── old-第二篇-如何写一个Claude-Code插件.md
-├── scripts/
-│   └── verify.js                    # 验证脚本（npm test）
 ├── skills/
 │   ├── configure/SKILL.md           # /glm-statusline:configure
 │   ├── install/SKILL.md             # /glm-statusline:install
 │   ├── plan-details/SKILL.md        # /glm-statusline:plan-details
 │   └── uninstall/SKILL.md           # /glm-statusline:uninstall
-├── test/fixtures/                   # GLM / Z.ai monitor API 样例响应
+├── test/
+│   ├── test.js                      # 验证脚本（npm test）
+│   └── fixtures/                    # GLM / Z.ai monitor API 样例响应
 ├── package.json
 ├── CHANGELOG.md                      # 更新日志（中文）
 └── README.md

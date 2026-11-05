@@ -126,6 +126,7 @@ function verifyProjectMetadata() {
   assertFile('lib/status-cache.js');
   assertFile('lib/statusline-format.js');
   assertFile('lib/transcript-stats.js');
+  assertFile('test/test.js');
   assertFile('skills/configure/SKILL.md');
   assertFile('skills/install/SKILL.md');
   assertFile('skills/plan-details/SKILL.md');
