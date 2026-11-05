@@ -70,7 +70,7 @@ glm-statusline-install.js install
   "statusLine": {
     "type": "command",
     "command": "'/path/to/node' '~/.claude/glm-statusline-launcher.js'",
-    "refreshInterval": 5,
+    "refreshInterval": 30,
     "padding": 0
   }
 }
@@ -179,7 +179,7 @@ npm test
 - `bin/glm-statusline.js` 能根据终端宽度在字段边界自动换行。
 - `bin/glm-statusline.js --preview` 能输出 `Preview:` 和当前配置对应的状态栏。
 - `bin/glm-statusline.js --plan-details` 能输出 plan、5H、MCP、可选 weekly、Day/30D 和 API/cache 状态。
-- `bin/glm-statusline-install.js install` 能在临时 settings 文件中写入正确 `statusLine`（含 `refreshInterval: 5`、`padding: 0`）。
+- `bin/glm-statusline-install.js install` 能在临时 settings 文件中写入正确 `statusLine`（含 `refreshInterval: 30`、`padding: 0`）。
 - `bin/glm-statusline-install.js configure` 无参数时能进入交互选择界面，每次选择后写入显示配置并打印预览；带参数时会提示改用交互式选择器。
 - `bin/glm-statusline-install.js uninstall` 能移除本插件管理的 `statusLine`，且不会误删非本插件管理的 status line。
 - 稳定 launcher（`~/.claude/glm-statusline-launcher.js`）能独立工作，自动从 `~/.claude/plugins/cache/bingqiangzhou-tools/glm-statusline/` 发现最新插件缓存版本。
@@ -217,7 +217,7 @@ GLM/Z.ai 相关配置仍然放在 Claude Code settings 的 `env` 中：
 
 缓存策略建议：
 
-- 默认 `60000` ms 是一个比较稳的折中：status line 随会话消息更新刷新（最快约 300ms 一帧），空闲时按 `refreshInterval: 5` 保底每 5 秒重跑一次；quota、Day、30D 这类聚合数据没有必要每次都请求 API。
+- 默认 `60000` ms 是一个比较稳的折中：status line 随会话消息更新刷新（事件驱动，约 300ms 防抖合并），空闲时按 `refreshInterval: 30` 保底每 30 秒重跑一次。30 秒的取值依据：quota、Day、30D 这类远端聚合数据受 60 秒缓存约束，空闲时最快每分钟一档新值，更快的轮询只是重复渲染同一画面；30 秒把空闲渲染量降约 83%（每小时 720 → 120 次），新数据平均半个缓存周期内可见。
 - 日常使用建议保留 60 秒。这样界面足够新，也不会把智谱/Z.ai monitor API 打得太频繁。
 - 调试 API 或排查数据问题时，可以临时设置 `GLM_STATUSLINE_CACHE_TTL_MS=1`。
 - 如果更关注减少 API 请求，可以设置为 `120000` 到 `300000` ms。代价是 5H 百分比和 Day/30D token 会慢一些更新。

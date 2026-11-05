@@ -390,8 +390,10 @@ async function install(args = []) {
     type: 'command',
     // 命令 = node + 稳定启动器路径
     command: statusLineCommand(),
-    // 刷新间隔 5 秒
-    refreshInterval: 5,
+    // 空闲保底刷新 30 秒：活跃时 CC 事件驱动刷新（300ms 防抖）与此值无关；
+    // 空闲时远端字段最快 60s（API 缓存 TTL）才有一档新值，30s 轮询已足够，
+    // 相比 5s 把空闲渲染量降约 83%（每小时 720 → 120 次）
+    refreshInterval: 30,
     // 无内边距
     padding: 0,
   };

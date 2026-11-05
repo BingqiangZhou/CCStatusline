@@ -349,7 +349,7 @@ require('../glm-statusline.js');
   "statusLine": {
     "type": "command",
     "command": "'/usr/local/bin/node' '/Users/you/.claude/glm-statusline-launcher.js'",
-    "refreshInterval": 5,
+    "refreshInterval": 30,
     "padding": 0
   }
 }

@@ -61,10 +61,10 @@ GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░�
 bin/glm-statusline-install.js install
  ├─ 首次接管时备份 ~/.claude/settings.json
  ├─ 写入稳定 launcher：~/.claude/glm-statusline-launcher.js
- └─ settings.json 写入 statusLine.command = node <launcher>（refreshInterval: 5）
+ └─ settings.json 写入 statusLine.command = node <launcher>（refreshInterval: 30）
 ```
 
-**运行期（每次刷新都执行）**。Claude Code 随会话消息更新重跑状态栏（最快约 300ms 一帧），空闲时按 `refreshInterval: 5` 保底每 5 秒一次。每一帧都是全新的短命进程，跑完即退：
+**运行期（每次刷新都执行）**。Claude Code 随会话消息更新重跑状态栏（事件驱动，约 300ms 防抖合并），空闲时按 `refreshInterval: 30` 保底每 30 秒一次。定时器取 30 秒的原因：远端字段（额度 / 用量）受 60 秒 API 缓存约束，空闲时最快每分钟才有一档新值，更快的轮询只是重复渲染同一画面；30 秒把空闲渲染量降约 83%（每小时 720 → 120 次），新额度数据平均半个缓存周期内可见。每一帧都是全新的短命进程，跑完即退：
 
 ```text
 Claude Code 刷新
