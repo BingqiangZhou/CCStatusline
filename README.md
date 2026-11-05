@@ -53,6 +53,58 @@ GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░�
 
 默认（未配置 `display` 或配置无效）显示上表全部字段；配置了 `display` 则按列表显示。
 
+#### 运行流程（从安装到每一帧）
+
+**安装期（`/glm-statusline:install`，只发生一次）**：
+
+```text
+bin/glm-statusline-install.js install
+ ├─ 首次接管时备份 ~/.claude/settings.json
+ ├─ 写入稳定 launcher：~/.claude/glm-statusline-launcher.js
+ └─ settings.json 写入 statusLine.command = node <launcher>（refreshInterval: 5）
+```
+
+**运行期（每次刷新都执行）**。Claude Code 随会话消息更新重跑状态栏（最快约 300ms 一帧），空闲时按 `refreshInterval: 5` 保底每 5 秒一次。每一帧都是全新的短命进程，跑完即退：
+
+```text
+Claude Code 刷新
+ └─ 进程①  node ~/.claude/glm-statusline-launcher.js      ← command 指向的稳定入口
+     ├─ 扫描 ~/.claude/plugins/cache/bingqiangzhou-tools/glm-statusline/*/
+     │  选最高版本号的 bin/glm-statusline.js（每次现场解析 → 插件更新后下一帧即生效）
+     ├─ 扫不到 → 回退安装时记录的仓库源码路径
+     └─ spawnSync 子进程，转发 stdin/stdout/env，透传退出码
+         └─ 进程②  bin/glm-statusline.js（一行 require）→ glm-statusline.js 顶层 main()
+             ├─ 读 stdin：Claude Code 传入的会话 JSON
+             └─ renderStatusLine(…) → stdout 打出 1–3 行 → 进程退出
+```
+
+**一帧内部（`renderStatusLine`）**——三条数据来源汇成字段表，再排版输出：
+
+```text
+会话 JSON（stdin）
+ ├─ context_window.used_percentage ──→ context（null/瞬时 0 视为无可靠读数，按 session_id 沿用上次值）
+ ├─ model.display_name ──按 env 映射──→ model
+ ├─ effort.level ──→ effort
+ └─ cost.total_api_duration_ms ──────┐
+transcript JSONL（按 message.id 去重）┼─→ speed（当前速度=输出增量÷API耗时增量；平均=首 tick 锚定的增量比）
+ └─ 累计 token ──→ session           │
+GLM / Z.ai monitor API（60s 缓存）
+ ├─ /api/monitor/usage/quota/limit ──兼容式解析──→ plan / 5h / mcp（每帧尝试，缓存兜底）
+ └─ /api/monitor/usage/model-usage ──→ day / 30d（仅所选字段包含时才请求）
+
+fields 字段表
+ → groupDisplay     按固定分组归入 3 个类别行（lib/display-fields.js；空分组整行省略）
+ → mergeRows        相邻行宽度之和 ≤ 终端宽度时贪心合并成更少行
+ → wrapSegments     仍超宽的行在字段边界内换行（CJK 与 ░▒▓█ 按 2 列计）
+ → 输出 1–3 行
+```
+
+三个要点贯穿这条链路：
+
+- **跨帧状态全部在缓存文件里**（`~/.claude/glm-statusline-cache.json`）：上下文保持值、速度基线、API 结果都存在这里；因为每帧进程即起即灭，且多个项目的进程会并发写同一个文件，所以写入用原子写（临时文件 + `rename`），一帧只读一次、写一次。
+- **各字段的取数细节**见下文[「字段数据来源」](#字段数据来源每项怎么来的)，排版规则见[「布局」](#布局分组多行--自动合并)。
+- **任何一步失败都不会搞挂 Claude Code**：`main().catch` 兜底输出一行占位文本，API 失败回退缓存值再回退默认值。
+
 #### 布局（分组多行 + 自动合并）
 
 状态栏统一使用分组多行布局（没有单行布局；配置文件里残留的 `layout` 键会被忽略）。字段按固定分组归入三行，屏幕上的顺序以分组为准：
@@ -224,7 +276,7 @@ GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░�
 claude plugin update glm-statusline@bingqiangzhou-tools
 ```
 
-稳定 launcher 会自动寻找最新安装版本的 `bin/glm-statusline.js`。
+稳定 launcher 会自动寻找最新安装版本的 `bin/glm-statusline.js`（每次渲染现场解析，完整链路见上文[「运行流程」](#运行流程从安装到每一帧)）。
 
 ### 7. 本地验证
 
