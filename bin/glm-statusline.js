@@ -4,7 +4,7 @@
  *
  * A single-file Claude Code statusLine script for GLM Coding Plan.
  *
- * Output (fixed grouped rows, auto-merged to fit the terminal width):
+ * Output (3 fixed grouped rows, one per line; an over-wide row wraps at field boundaries):
  *   Model GLM-4.6 │ Effort high │ Speed 42 t/s · Avg 38 t/s
  *   Context ▓░░░░░░ 12% │ Session 160K │ Day 42.8M │ 30D 3.1B
  *   GLM Coding Plan │ 5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% @06-14
@@ -110,8 +110,6 @@ const {
   formatTokens,
   // 渲染 "██░░░░ 42%" 进度条
   renderBar,
-  // 相邻行宽度够时把多行段数组合并成一行
-  mergeRows,
   // 按终端宽度自动换行拼接段
   wrapSegments,
 } = require('../lib/statusline-format');
@@ -372,16 +370,15 @@ async function renderStatusLine(sessionContext = {}) {
     speed: `Speed ${formatSpeed(speedStats.current)} t/s · Avg ${formatSpeed(speedStats.average)} t/s`,
   };
 
-  // 唯一布局：分组多行 + 自动合并。全部字段按类别分组（FIELD_GROUPS 行序 + 行内规范顺序），
-  // 相邻行的总宽度能装进一行（≤ maxWidth）时由 mergeRows 自动合并成一行 —— 宽终端可
-  // 能只有 2 行甚至 1 行；单行自身超宽时仍由 wrapSegments 在字段边界折行
+  // 唯一布局：固定分组三行，不做跨行合并。全部字段按类别分组（FIELD_GROUPS 行序 + 行内规范顺序），
+  // 每组恒占一行；单行自身超宽时由 wrapSegments 在字段边界折行
   const rows = groupRows()
     // 每组映射为该行的文本段数组（过滤掉空段）
     .map((keys) => keys.map((key) => fields[key]).filter(Boolean))
     // 空分组整行跳过
     .filter((segments) => segments.length);
-  // 先把装得下的相邻行合并，再对每行做超宽折行（合并行必 ≤ 宽度不会内折）
-  const lines = mergeRows(rows, maxWidth).map((segments) => wrapSegments(segments, maxWidth));
+  // 每行独立做超宽折行，行与行之间不再合并
+  const lines = rows.map((segments) => wrapSegments(segments, maxWidth));
   // 多行连接返回
   return lines.join('\n');
 }

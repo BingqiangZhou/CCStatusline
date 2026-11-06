@@ -178,15 +178,15 @@ function verifyDefaultStatusLine(tempDir) {
   assert.match(status.stdout, /30D 0/);
   assert.doesNotMatch(status.stdout, /Sess:/);
   assert.doesNotMatch(status.stdout, /Day:/);
-  // Every field, rendered as grouped rows that auto-merge when they fit one terminal line.
-  // At COLUMNS=120 the row1+row2 width is 113 (fits; model/effort/plan pinned via env
-  // overrides for determinism), row1+row2+row3 is 181 (doesn't) -> exactly 2 lines.
+  // Every field, rendered as fixed grouped rows that never merge regardless of width:
+  // always 3 category rows (model/effort/plan pinned via env overrides for determinism).
   const defaultLines = status.stdout.trim().split('\n');
-  assert.strictEqual(defaultLines.length, 2, status.stdout);
-  assert.match(defaultLines[0], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s │ Context .+ 12% │ Session 0 │ Day 0 │ 30D 0$/);
+  assert.strictEqual(defaultLines.length, 3, status.stdout);
+  assert.match(defaultLines[0], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s$/);
+  assert.match(defaultLines[1], /^Context .+ 12% │ Session 0 │ Day 0 │ 30D 0$/);
   // Exact bars pin the documented ?? 0 invariant: absent 5h/mcp readings must
   // render as empty bars with 0% — never --%.
-  assert.match(defaultLines[1], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
+  assert.match(defaultLines[2], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
 
   // A legacy display config file must be ignored entirely: all fields still render.
   const legacyConfigFile = path.join(tempDir, 'legacy-display-config.json');
@@ -210,9 +210,10 @@ function verifyDefaultStatusLine(tempDir) {
   });
   assert.strictEqual(legacyStatus.status, 0, legacyStatus.stderr);
   const legacyLines = legacyStatus.stdout.trim().split('\n');
-  assert.strictEqual(legacyLines.length, 2, legacyStatus.stdout);
-  assert.match(legacyLines[0], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s │ Context .+ 12% │ Session 0 │ Day 0 │ 30D 0$/);
-  assert.match(legacyLines[1], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
+  assert.strictEqual(legacyLines.length, 3, legacyStatus.stdout);
+  assert.match(legacyLines[0], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s$/);
+  assert.match(legacyLines[1], /^Context .+ 12% │ Session 0 │ Day 0 │ 30D 0$/);
+  assert.match(legacyLines[2], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
 }
 
 function writeTranscriptFixture(transcriptFile) {
@@ -280,9 +281,8 @@ async function verifyApiBackedStatusLine({ cacheFile, tempDir, transcriptFile })
       },
     });
     assert.strictEqual(apiUsage.status, 0, apiUsage.stderr);
-    // Default is every field, grouped rows auto-merge only when they fit. At COLUMNS=100
-    // row1+row2 is 118 (doesn't fit) -> three separate category rows. Model name is pinned
-    // via an env override; plan name comes from the fixture API.
+    // Default is every field, fixed grouped rows (never merged, whatever the width).
+    // Model name is pinned via an env override; plan name comes from the fixture API.
     const apiLines = apiUsage.stdout.trim().split('\n');
     assert.strictEqual(apiLines.length, 3, apiUsage.stdout);
     assert.match(apiLines[0], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s$/);
@@ -340,13 +340,13 @@ async function verifyApiBackedStatusLine({ cacheFile, tempDir, transcriptFile })
       },
     });
     assert.strictEqual(preview.status, 0, preview.stderr);
-    // Preview prefixes the same grouped render: at COLUMNS=120 row1+row2 (118) merge,
-    // row3 stays separate -> "Preview:" plus two status-line lines.
+    // Preview prefixes the same fixed three-row render: "Preview:" plus three lines.
     const previewLines = preview.stdout.trim().split('\n');
-    assert.strictEqual(previewLines.length, 3, preview.stdout);
+    assert.strictEqual(previewLines.length, 4, preview.stdout);
     assert.strictEqual(previewLines[0], 'Preview:');
-    assert.match(previewLines[1], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s │ Context .+ 1% │ Session 2K │ Day 3K │ 30D 5\.98B$/);
-    assert.match(previewLines[2], /^GLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% @06-14$/);
+    assert.match(previewLines[1], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s$/);
+    assert.match(previewLines[2], /^Context .+ 1% │ Session 2K │ Day 3K │ 30D 5\.98B$/);
+    assert.match(previewLines[3], /^GLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% @06-14$/);
   } finally {
     await close(server);
   }
@@ -452,12 +452,13 @@ function verifyInstallerWorkflow({ tempDir }) {
     },
   });
   assert.strictEqual(launcherStatus.status, 0, launcherStatus.stderr);
-  // Every field; grouped rows auto-merge at COLUMNS=120 into two lines
-  // (row1+row2 fit, row3 doesn't). Model/effort/plan pinned via env overrides.
+  // Every field; fixed grouped rows never merge: 3 lines at COLUMNS=120
+  // (model/effort/plan pinned via env overrides).
   const launcherLines = launcherStatus.stdout.trim().split('\n');
-  assert.strictEqual(launcherLines.length, 2, launcherStatus.stdout);
-  assert.match(launcherLines[0], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s │ Context .+ 12% │ Session 0 │ Day 0 │ 30D 0$/);
-  assert.match(launcherLines[1], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
+  assert.strictEqual(launcherLines.length, 3, launcherStatus.stdout);
+  assert.match(launcherLines[0], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s$/);
+  assert.match(launcherLines[1], /^Context .+ 12% │ Session 0 │ Day 0 │ 30D 0$/);
+  assert.match(launcherLines[2], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
 
   // Uninstall also cleans up the legacy display config file it used to manage.
   const uninstallConfigFile = path.join(tempDir, 'legacy-uninstall-config.json');
@@ -877,8 +878,8 @@ async function verifyTokenOutputSpeed({ tempDir }) {
 }
 
 async function verifyGroupedLayout({ tempDir }) {
-  // 1. All fields on a narrow terminal -> exactly 3 category lines (model / session / quota),
-  //    no merging (row1+row2 = 115 columns > 80). Model/plan pinned via env overrides.
+  // 1. Fixed grouped layout: exactly 3 category rows (model / session / quota) at every
+  //    width — rows never merge. Model/plan pinned via env overrides.
   const groupedCache = path.join(tempDir, 'grouped-layout-cache.json');
   fs.writeFileSync(groupedCache, '{}');
   const groupedInput = JSON.stringify({
@@ -899,33 +900,35 @@ async function verifyGroupedLayout({ tempDir }) {
   assert.strictEqual(grouped.status, 0, grouped.stderr);
   const groupedLines = grouped.stdout.trim().split('\n');
   assert.strictEqual(groupedLines.length, 3, `expected 3 grouped lines, got:\n${grouped.stdout}`);
-  assert.match(groupedLines[0], /^Model GLM-test │ Effort high │ Speed/);
+  assert.match(groupedLines[0], /^Model GLM-test │ Effort high │ Speed -- t\/s · Avg -- t\/s$/);
   assert.match(groupedLines[1], /^Context .+ │ Session 0 │ Day 0 │ 30D 0$/);
   assert.match(groupedLines[2], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
 
-  // 1b. Auto-merge: COLUMNS=130 fits row1+row2 (115) but not all three rows (183) -> 2 lines.
+  // 1b. Anti-merge regression pin: COLUMNS=130 would fit row1+row2 (115) — rows must
+  //     STILL render as 3 independent lines.
   const groupedWide = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: groupedInput,
     env: groupedEnv('130'),
   });
   assert.strictEqual(groupedWide.status, 0, groupedWide.stderr);
   const wideLines = groupedWide.stdout.trim().split('\n');
-  assert.strictEqual(wideLines.length, 2, `expected 2 merged lines, got:\n${groupedWide.stdout}`);
-  assert.match(wideLines[0], /^Model GLM-test │ Effort high │ Speed .+ │ Context .+ 12% │ Session 0 │ Day 0 │ 30D 0$/);
-  assert.match(wideLines[1], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
+  assert.strictEqual(wideLines.length, 3, `expected 3 fixed rows, got:\n${groupedWide.stdout}`);
+  assert.match(wideLines[0], /^Model GLM-test │ Effort high │ Speed -- t\/s · Avg -- t\/s$/);
+  assert.match(wideLines[1], /^Context .+ │ Session 0 │ Day 0 │ 30D 0$/);
+  assert.match(wideLines[2], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
 
-  // 1c. Auto-merge: COLUMNS=200 fits all three rows (183) -> a single line.
+  // 1c. Anti-merge regression pin: COLUMNS=200 would fit all three rows (183) — still
+  //     exactly 3 lines.
   const groupedUltra = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: groupedInput,
     env: groupedEnv('200'),
   });
   assert.strictEqual(groupedUltra.status, 0, groupedUltra.stderr);
   const ultraLines = groupedUltra.stdout.trim().split('\n');
-  assert.strictEqual(ultraLines.length, 1, `expected 1 merged line, got:\n${groupedUltra.stdout}`);
-  assert.match(
-    ultraLines[0],
-    /^Model GLM-test │ Effort high │ Speed .+ │ Context .+ 12% │ Session 0 │ Day 0 │ 30D 0 │ GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/
-  );
+  assert.strictEqual(ultraLines.length, 3, `expected 3 fixed rows, got:\n${groupedUltra.stdout}`);
+  assert.match(ultraLines[0], /^Model GLM-test │ Effort high │ Speed -- t\/s · Avg -- t\/s$/);
+  assert.match(ultraLines[1], /^Context .+ │ Session 0 │ Day 0 │ 30D 0$/);
+  assert.match(ultraLines[2], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
 }
 
 async function main() {
