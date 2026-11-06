@@ -152,6 +152,9 @@ function verifyProjectMetadata() {
   // 行合并已移除：布局模块的注释不许再描述它（含英文措辞）
   const displayFieldsSource = fs.readFileSync(path.join(root, 'lib/display-fields.js'), 'utf8');
   assert.doesNotMatch(displayFieldsSource, /auto-merge|mergeRows|segmentsWidth/);
+  // mergeRows/segmentsWidth 当年实现于 statusline-format.js —— 同一正则也盯住真正实现过的文件
+  const statuslineFormatSource = fs.readFileSync(path.join(root, 'lib/statusline-format.js'), 'utf8');
+  assert.doesNotMatch(statuslineFormatSource, /auto-merge|mergeRows|segmentsWidth/);
 
   // skills 指南必须保留的小节标题
   const skillsGuide = fs.readFileSync(
