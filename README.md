@@ -73,7 +73,7 @@ Claude Code 刷新
      └─ spawnSync 子进程，转发 stdin/stdout/env，透传退出码
          └─ 进程②  bin/glm-statusline.js（核心本体，经 ../lib/ 引用共享模块）→ 顶层 main()
              ├─ 读 stdin：Claude Code 传入的会话 JSON
-             └─ renderStatusLine(…) → stdout 打出固定 3 行 → 进程退出
+             └─ renderStatusLine(…) → stdout 打出 3 个分组行 → 进程退出
 ```
 
 **一帧内部（`renderStatusLine`）**——三条数据来源汇成字段表，再排版输出：
@@ -93,7 +93,7 @@ GLM / Z.ai monitor API（60s 缓存）
 fields 字段表
  → groupRows        按固定分组归入 3 个类别行（lib/display-fields.js）
  → wrapSegments     超宽的行在字段边界内换行（CJK 与 ░▒▓█ 按 2 列计）
- → 输出固定 3 行
+ → 输出 3 个分组行（超宽组折行后物理行数可 > 3）
 ```
 
 三个要点贯穿这条链路：
