@@ -4,8 +4,10 @@
  *
  * A single-file Claude Code statusLine script for GLM Coding Plan.
  *
- * Output:
- *   5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% @06-14 │ Session 160K │ Day 42.8M
+ * Output (fixed grouped rows, auto-merged to fit the terminal width):
+ *   Model GLM-4.6 │ Effort high │ Speed 42 t/s · Avg 38 t/s
+ *   Context ▓░░░░░░ 12% │ Session 160K │ Day 42.8M │ 30D 3.1B
+ *   GLM Coding Plan │ 5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% @06-14
  *
  * Details:
  *   glm-statusline.js --plan-details
@@ -37,8 +39,8 @@ const path = require('path');
 const os = require('os');
 // URL 构造器：解析 base URL（apiHostLabel 用；网络传输已移入 lib/monitor-api.js）
 const { URL } = require('url');
-// 字段定义库：全部字段表 DISPLAY_FIELDS（未配置时默认全显）、分组 groupDisplay、display 清洗+回退 displayOrDefault
-const { DISPLAY_FIELDS, groupDisplay, displayOrDefault } = require('../lib/display-fields');
+// 字段定义库：全部字段的分组行切分（状态栏固定渲染全部字段，没有选择配置）
+const { groupRows } = require('../lib/display-fields');
 // 文件读写共享库（与安装器共用）：安全读 JSON、配置路径、调试日志
 const {
   // 调试日志（读文件/API 出错时记 stderr，仅 GLM_STATUSLINE_DEBUG=1 可见）
@@ -47,8 +49,6 @@ const {
   expandHome,
   // 通用 JSON 读取（吞错返回 null —— 经下方 readJsonSafe 包装记 debugLog）
   readJsonFile,
-  // 配置文件路径解析（env 覆盖 → 默认 + ~ 展开）
-  configFilePath,
 } = require('../lib/file-io');
 // transcript 统计库：会话 token 读取器（session 字段的数值来源；速度用的读取器在 lib/session-metrics.js 内部消费）
 const {
@@ -122,29 +122,6 @@ const HOME = os.homedir();
 //（底层是 lib/file-io.js 的 readJsonFile —— 这里包装出"出错记 debugLog"的调用形态）
 function readJsonSafe(filePath) {
   return readJsonFile(filePath, { onError: (err) => debugLog(`cannot parse JSON file ${filePath}`, err) });
-}
-
-// 读取并归一化状态栏配置：display 字段列表 + 最大宽度
-//（布局已统一为分组多行 + 自动合并；配置文件里残留的 layout 键会被静默忽略）
-function readStatusConfig(env = process.env) {
-  // 配置文件路径（env 覆盖 → 默认路径，含 ~ 展开；解析逻辑在 lib/file-io.js）
-  const configPath = configFilePath(env);
-  // 读配置 JSON（失败得到空对象）
-  const fileConfig = readJsonSafe(configPath) || {};
-  // display 清洗 + 未配置回退全字段（逻辑在 lib/display-fields.js）
-  const display = displayOrDefault(fileConfig.display);
-  // 读终端最大宽度
-  const maxWidth = readMaxWidth(env);
-
-  // 返回归一化后的配置对象
-  return {
-    // 配置文件实际路径（调试用）
-    configPath,
-    // 要显示的字段列表（已清洗/去重）
-    display,
-    // 换行宽度（0 表示不主动折行、也不合并）
-    maxWidth,
-  };
 }
 
 // 读终端宽度（换行用）
@@ -322,8 +299,8 @@ async function readStdinJson() {
 async function renderStatusLine(sessionContext = {}) {
   // 合并三层 settings + process.env 的 env
   const env = mergeEnvFromSettings(sessionContext);
-  // 读 display/宽度 配置
-  const config = readStatusConfig(env);
+  // 读终端换行宽度（状态栏没有配置文件 —— 字段固定全显）
+  const maxWidth = readMaxWidth(env);
 
   // transcript 路径（~ 展开；三种字段名兼容）
   const transcriptPath = expandHome(
@@ -345,27 +322,23 @@ async function renderStatusLine(sessionContext = {}) {
     cacheDirty = true;
   };
 
-  // 解析输出速度（内部自带 cost gate）
-  const speedStats = resolveSpeed(sessionContext, transcriptPath, config, cache, markCache);
+  // 解析输出速度
+  const speedStats = resolveSpeed(sessionContext, transcriptPath, cache, markCache);
 
   // 抓配额（共享 cache/mark）
   const quota = await fetchQuota(env, cache, markCache);
   // 解析上下文百分比（防闪烁）
-  const contextPercent = resolveContextPercent(sessionContext, sessionTokens, env, config, cache, markCache);
+  const contextPercent = resolveContextPercent(sessionContext, sessionTokens, env, cache, markCache);
   // ?? 0 例外：5H 空读数显示 0%（空条）而不是 --
   const fiveHourPercent = quota.fiveHourPercent ?? 0;
   // 5H 重置时刻文本
   const fiveHourReset = formatResetHHmm(quota.fiveHourUpdateTime || quota.fiveHourResetTime);
-  // 是否需要当日数据
-  const needsDay = config.display.includes('day');
-  // 是否需要 30 天数据
-  const needsMonth = config.display.includes('30d');
-  // 并行抓（不需要的用 null 占位 —— 成本闸门：不显示就不抓）
+  // 并行抓当日/30 天用量（全部字段恒显 → 始终请求；60s 共享缓存仍是成本闸门）
   const [dayTokens, monthTokens] = await Promise.all([
     // day 请求
-    needsDay ? fetchModelUsage(env, 'day', cache, markCache) : Promise.resolve(null),
+    fetchModelUsage(env, 'day', cache, markCache),
     // month 请求
-    needsMonth ? fetchModelUsage(env, 'month', cache, markCache) : Promise.resolve(null),
+    fetchModelUsage(env, 'month', cache, markCache),
   ]);
 
   // 整个渲染唯一的写缓存点：任何字段变过才写
@@ -375,7 +348,7 @@ async function renderStatusLine(sessionContext = {}) {
   const planName = quota.planName || normalizePlanName(env.GLM_STATUSLINE_PLAN) || 'GLM';
   // 努力档位
   const effortLevel = getEffortLevel(sessionContext, env);
-  // 各字段的文本段（key 即 display 字段名）
+  // 各字段的文本段（key 即字段名）
   const fields = {
     // 套餐名
     plan: planName,
@@ -395,27 +368,20 @@ async function renderStatusLine(sessionContext = {}) {
     day: `Day ${formatTokens(dayTokens ?? 0)}`,
     // 30 天 token（?? 0 例外）
     '30d': `30D ${formatTokens(monthTokens ?? 0)}`,
-    // formatSpeed(null) -> '--'，未选中 speed 时（speedStats 为双 null）该段显示为占位。
-    // 速度段是普通段，位于第 1 行与 model/effort 同行（不再有独立末行的特例）
+    // formatSpeed(null) -> '--'。速度段是普通段，位于第 1 行与 model/effort 同行
     speed: `Speed ${formatSpeed(speedStats.current)} t/s · Avg ${formatSpeed(speedStats.average)} t/s`,
   };
 
-  // 唯一布局：分组多行 + 自动合并。字段按类别分组（FIELD_GROUPS 行序 + 行内规范顺序），
+  // 唯一布局：分组多行 + 自动合并。全部字段按类别分组（FIELD_GROUPS 行序 + 行内规范顺序），
   // 相邻行的总宽度能装进一行（≤ maxWidth）时由 mergeRows 自动合并成一行 —— 宽终端可
-  // 能只有 2 行甚至 1 行；单行自身超宽时仍由 wrapSegments 在字段边界折行；空分组整行跳过
-  const rows = groupDisplay(config.display)
+  // 能只有 2 行甚至 1 行；单行自身超宽时仍由 wrapSegments 在字段边界折行
+  const rows = groupRows()
     // 每组映射为该行的文本段数组（过滤掉空段）
     .map((keys) => keys.map((key) => fields[key]).filter(Boolean))
     // 空分组整行跳过
     .filter((segments) => segments.length);
-  // Defensive fallback: nothing to render -> show every field (unreachable in practice).
-  // 防御兜底：一组都没有（异常配置）→ 退回全部字段的单一行流
-  if (!rows.length) {
-    const segments = DISPLAY_FIELDS.map((key) => fields[key]).filter(Boolean);
-    if (segments.length) rows.push(segments);
-  }
   // 先把装得下的相邻行合并，再对每行做超宽折行（合并行必 ≤ 宽度不会内折）
-  const lines = mergeRows(rows, config.maxWidth).map((segments) => wrapSegments(segments, config.maxWidth));
+  const lines = mergeRows(rows, maxWidth).map((segments) => wrapSegments(segments, maxWidth));
   // 多行连接返回
   return lines.join('\n');
 }

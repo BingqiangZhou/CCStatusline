@@ -59,12 +59,11 @@ function listen(server) {
 }
 
 // Shared env for statusline runs that don't need the live GLM API (empty token/url → fetchQuota
-// returns its fallback immediately). Each call points at its own config/cache files.
-function baseEnv(configFile, cacheFile) {
+// returns its fallback immediately). Each call points at its own cache file.
+function baseEnv(cacheFile) {
   return {
     ANTHROPIC_AUTH_TOKEN: '',
     ANTHROPIC_BASE_URL: '',
-    GLM_STATUSLINE_CONFIG_FILE: configFile,
     GLM_STATUSLINE_CACHE_FILE: cacheFile,
     GLM_STATUSLINE_CACHE_TTL_MS: '1',
     COLUMNS: '120',
@@ -118,7 +117,6 @@ function verifyProjectMetadata() {
   // lib/ 随插件包分发（marketplace source: "./"），钉住全部模块文件防搬移笔误
   assertFile('lib/display-fields.js');
   assertFile('lib/file-io.js');
-  assertFile('lib/interactive-configure.js');
   assertFile('lib/model-mapping.js');
   assertFile('lib/monitor-api.js');
   assertFile('lib/quota-parsing.js');
@@ -127,7 +125,6 @@ function verifyProjectMetadata() {
   assertFile('lib/statusline-format.js');
   assertFile('lib/transcript-stats.js');
   assertFile('test/test.js');
-  assertFile('skills/configure/SKILL.md');
   assertFile('skills/install/SKILL.md');
   assertFile('skills/plan-details/SKILL.md');
   assertFile('skills/uninstall/SKILL.md');
@@ -137,9 +134,7 @@ function verifyProjectMetadata() {
   assertFile('test/fixtures/model-usage-day.json');
   assertFile('test/fixtures/model-usage-month.json');
 
-  const configureSkill = fs.readFileSync(path.join(root, 'skills/configure/SKILL.md'), 'utf8');
   const installSkill = fs.readFileSync(path.join(root, 'skills/install/SKILL.md'), 'utf8');
-  assert.doesNotMatch(configureSkill, /--show|--layout|--bar-width|argument-hint/);
   assert.doesNotMatch(installSkill, /--show|--layout|--bar-width|argument-hint/);
 
   const skillsGuide = fs.readFileSync(
@@ -157,7 +152,8 @@ function verifyProjectMetadata() {
   }
 }
 
-function verifyDefaultStatusLine(isolatedDefaultConfigFile) {
+function verifyDefaultStatusLine(tempDir) {
+  // Every field renders unconditionally in fixed grouped rows; no config file is read.
   const status = run(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({
       model: { display_name: 'Sonnet' },
@@ -169,7 +165,6 @@ function verifyDefaultStatusLine(isolatedDefaultConfigFile) {
       ANTHROPIC_BASE_URL: '',
       ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
       GLM_STATUSLINE_PLAN: '',
-      GLM_STATUSLINE_CONFIG_FILE: isolatedDefaultConfigFile,
       GLM_STATUSLINE_CACHE_TTL_MS: '1',
       COLUMNS: '120',
       CLAUDE_CODE_EFFORT_LEVEL: '',
@@ -183,15 +178,41 @@ function verifyDefaultStatusLine(isolatedDefaultConfigFile) {
   assert.match(status.stdout, /30D 0/);
   assert.doesNotMatch(status.stdout, /Sess:/);
   assert.doesNotMatch(status.stdout, /Day:/);
-  // Default is every field, rendered as grouped rows that auto-merge when they fit one
-  // terminal line. At COLUMNS=120 the row1+row2 width is 113 (fits; model/effort/plan pinned
-  // via env overrides for determinism), row1+row2+row3 is 181 (doesn't) -> exactly 2 lines.
+  // Every field, rendered as grouped rows that auto-merge when they fit one terminal line.
+  // At COLUMNS=120 the row1+row2 width is 113 (fits; model/effort/plan pinned via env
+  // overrides for determinism), row1+row2+row3 is 181 (doesn't) -> exactly 2 lines.
   const defaultLines = status.stdout.trim().split('\n');
   assert.strictEqual(defaultLines.length, 2, status.stdout);
   assert.match(defaultLines[0], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s │ Context .+ 12% │ Session 0 │ Day 0 │ 30D 0$/);
   // Exact bars pin the documented ?? 0 invariant: absent 5h/mcp readings must
   // render as empty bars with 0% — never --%.
   assert.match(defaultLines[1], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
+
+  // A legacy display config file must be ignored entirely: all fields still render.
+  const legacyConfigFile = path.join(tempDir, 'legacy-display-config.json');
+  fs.writeFileSync(legacyConfigFile, JSON.stringify({ display: ['plan'] }, null, 2));
+  const legacyStatus = run(process.execPath, ['bin/glm-statusline.js'], {
+    input: JSON.stringify({
+      model: { display_name: 'Sonnet' },
+      context_window: { used_percentage: 12, context_window_size: 200000 },
+      transcript_path: path.join(os.tmpdir(), 'missing-glm-statusline-transcript.jsonl'),
+    }),
+    env: {
+      ANTHROPIC_AUTH_TOKEN: '',
+      ANTHROPIC_BASE_URL: '',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
+      GLM_STATUSLINE_PLAN: '',
+      GLM_STATUSLINE_CONFIG_FILE: legacyConfigFile,
+      GLM_STATUSLINE_CACHE_TTL_MS: '1',
+      COLUMNS: '120',
+      CLAUDE_CODE_EFFORT_LEVEL: '',
+    },
+  });
+  assert.strictEqual(legacyStatus.status, 0, legacyStatus.stderr);
+  const legacyLines = legacyStatus.stdout.trim().split('\n');
+  assert.strictEqual(legacyLines.length, 2, legacyStatus.stdout);
+  assert.match(legacyLines[0], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s │ Context .+ 12% │ Session 0 │ Day 0 │ 30D 0$/);
+  assert.match(legacyLines[1], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
 }
 
 function writeTranscriptFixture(transcriptFile) {
@@ -237,7 +258,7 @@ function createFixtureApiServer(requests) {
   });
 }
 
-async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaultConfigFile, tempDir, transcriptFile }) {
+async function verifyApiBackedStatusLine({ cacheFile, tempDir, transcriptFile }) {
   const requests = [];
   const server = createFixtureApiServer(requests);
   const port = await listen(server);
@@ -253,7 +274,6 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
         ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
         GLM_STATUSLINE_CACHE_FILE: cacheFile,
-        GLM_STATUSLINE_CONFIG_FILE: isolatedDefaultConfigFile,
         GLM_STATUSLINE_CACHE_TTL_MS: '60000',
         COLUMNS: '100',
         CLAUDE_CODE_EFFORT_LEVEL: '',
@@ -303,94 +323,6 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
     assert.ok(endpointKeys.length >= 3, Object.keys(testCache).join(', '));
     assert.ok(endpointKeys.every((key) => key.includes(`http://127.0.0.1:${port}`)));
 
-    fs.writeFileSync(
-      configFile,
-      JSON.stringify(
-        {
-          display: ['plan', '5h', 'mcp', 'day', '30d'],
-        },
-        null,
-        2
-      )
-    );
-    const configuredStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
-      input: JSON.stringify({
-        model: { display_name: 'Sonnet' },
-        context_window: { used_percentage: 1, context_window_size: 200000 },
-        transcript_path: transcriptFile,
-      }),
-      env: {
-        ANTHROPIC_AUTH_TOKEN: 'test-token',
-        ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
-        GLM_STATUSLINE_CACHE_FILE: cacheFile,
-        GLM_STATUSLINE_CONFIG_FILE: configFile,
-        GLM_STATUSLINE_CACHE_TTL_MS: '60000',
-        COLUMNS: '120',
-      },
-    });
-    assert.strictEqual(configuredStatus.status, 0, configuredStatus.stderr);
-    // Group order governs on-screen order (day/30d row before plan/5h/mcp row); at
-    // COLUMNS=120 the two rows' combined width (96) fits a single line -> merged.
-    assert.match(configuredStatus.stdout, /^Day 3K │ 30D 5\.98B │ GLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% @06-14\s*$/);
-    assert.doesNotMatch(configuredStatus.stdout, /Context/);
-    assert.doesNotMatch(configuredStatus.stdout, /Session/);
-
-    const wrappedStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
-      input: JSON.stringify({
-        model: { display_name: 'Sonnet' },
-        context_window: { used_percentage: 1, context_window_size: 200000 },
-        transcript_path: transcriptFile,
-      }),
-      env: {
-        ANTHROPIC_AUTH_TOKEN: 'test-token',
-        ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
-        GLM_STATUSLINE_CACHE_FILE: cacheFile,
-        GLM_STATUSLINE_CONFIG_FILE: configFile,
-        GLM_STATUSLINE_CACHE_TTL_MS: '60000',
-        COLUMNS: '52',
-      },
-    });
-    assert.strictEqual(wrappedStatus.status, 0, wrappedStatus.stderr);
-    const wrappedLines = wrappedStatus.stdout.trim().split('\n');
-    assert.strictEqual(wrappedLines.length, 3, wrappedStatus.stdout);
-    assert.match(wrappedLines[0], /^Day 3K │ 30D 5\.98B$/);
-    assert.match(wrappedLines[1], /^GLM Test │ 5H .+ 10% @18:30$/);
-    assert.match(wrappedLines[2], /^MCP .+ 20% @06-14$/);
-    assert.ok(wrappedLines.every((line) => line.length <= 52), wrappedStatus.stdout);
-
-    const contextConfigFile = path.join(tempDir, 'context-wrap-config.json');
-    fs.writeFileSync(
-      contextConfigFile,
-      JSON.stringify(
-        {
-          display: ['plan', '5h', 'mcp', 'context', 'model', 'session', 'day', '30d'],
-        },
-        null,
-        2
-      )
-    );
-    const contextWrappedStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
-      input: JSON.stringify({
-        model: { display_name: 'Sonnet' },
-        context_window: { used_percentage: 12, context_window_size: 200000 },
-        transcript_path: transcriptFile,
-      }),
-      env: {
-        ANTHROPIC_AUTH_TOKEN: 'test-token',
-        ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
-        ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
-        GLM_STATUSLINE_CACHE_FILE: cacheFile,
-        GLM_STATUSLINE_CONFIG_FILE: contextConfigFile,
-        GLM_STATUSLINE_CACHE_TTL_MS: '60000',
-        COLUMNS: '70',
-      },
-    });
-    assert.strictEqual(contextWrappedStatus.status, 0, contextWrappedStatus.stderr);
-    const contextLines = contextWrappedStatus.stdout.trim().split('\n');
-    assert.ok(contextLines.length >= 2, contextWrappedStatus.stdout);
-    assert.match(contextLines.join('\n'), /Context .+ 12%/);
-    assert.doesNotMatch(contextLines[0], /Context .+$/);
-
     const preview = await runAsync(process.execPath, ['bin/glm-statusline.js', '--preview'], {
       input: JSON.stringify({
         model: { display_name: 'Sonnet' },
@@ -400,14 +332,21 @@ async function verifyApiBackedStatusLine({ cacheFile, configFile, isolatedDefaul
       env: {
         ANTHROPIC_AUTH_TOKEN: 'test-token',
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/anthropic`,
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
         GLM_STATUSLINE_CACHE_FILE: cacheFile,
-        GLM_STATUSLINE_CONFIG_FILE: configFile,
         GLM_STATUSLINE_CACHE_TTL_MS: '60000',
         COLUMNS: '120',
+        CLAUDE_CODE_EFFORT_LEVEL: '',
       },
     });
     assert.strictEqual(preview.status, 0, preview.stderr);
-    assert.match(preview.stdout, /^Preview:\nDay 3K │ 30D 5\.98B │ GLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% @06-14\s*$/);
+    // Preview prefixes the same grouped render: at COLUMNS=120 row1+row2 (118) merge,
+    // row3 stays separate -> "Preview:" plus two status-line lines.
+    const previewLines = preview.stdout.trim().split('\n');
+    assert.strictEqual(previewLines.length, 3, preview.stdout);
+    assert.strictEqual(previewLines[0], 'Preview:');
+    assert.match(previewLines[1], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s │ Context .+ 1% │ Session 2K │ Day 3K │ 30D 5\.98B$/);
+    assert.match(previewLines[2], /^GLM Test │ 5H .+ 10% @18:30 │ MCP .+ 20% @06-14$/);
   } finally {
     await close(server);
   }
@@ -431,7 +370,7 @@ function createFailingApiServer() {
   });
 }
 
-async function verifyDebugLogging({ configFile, tempDir, transcriptFile }) {
+async function verifyDebugLogging({ tempDir, transcriptFile }) {
   const debugServer = createFailingApiServer();
   const debugPort = await listen(debugServer);
   try {
@@ -445,7 +384,6 @@ async function verifyDebugLogging({ configFile, tempDir, transcriptFile }) {
         ANTHROPIC_AUTH_TOKEN: 'test-token',
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${debugPort}/api/anthropic`,
         GLM_STATUSLINE_CACHE_FILE: path.join(tempDir, 'debug-cache.json'),
-        GLM_STATUSLINE_CONFIG_FILE: configFile,
         GLM_STATUSLINE_CACHE_TTL_MS: '1',
         GLM_STATUSLINE_DEBUG: '1',
         COLUMNS: '120',
@@ -459,10 +397,9 @@ async function verifyDebugLogging({ configFile, tempDir, transcriptFile }) {
   }
 }
 
-function verifyInstallerWorkflow({ isolatedDefaultConfigFile, tempDir }) {
+function verifyInstallerWorkflow({ tempDir }) {
   const settingsFile = path.join(tempDir, 'settings.json');
   const launcherFile = path.join(tempDir, 'glm-statusline-launcher.js');
-  const installConfigFile = path.join(tempDir, 'install-config.json');
   fs.writeFileSync(settingsFile, JSON.stringify({ env: { GLM_STATUSLINE_PLAN: 'GLM Lite' } }, null, 2));
 
   const install = run(process.execPath, ['bin/glm-statusline-install.js', 'install'], {
@@ -481,44 +418,22 @@ function verifyInstallerWorkflow({ isolatedDefaultConfigFile, tempDir }) {
   assert.strictEqual(installedSettings.statusLine.refreshInterval, 30);
   assert.strictEqual(installedSettings.statusLine.padding, 0);
   assert.strictEqual(installedSettings.env.GLM_STATUSLINE_PLAN, 'GLM Lite');
-  assert.match(install.stdout, /\/glm-statusline:configure/);
-  assert.match(install.stdout, /choose which fields are shown/i);
+  // Install prints a preview of the fixed all-field render and says there is nothing to pick.
+  assert.match(install.stdout, /Preview:/);
+  assert.match(install.stdout, /nothing to configure/i);
 
-  const unsupportedConfigureArgs = run(process.execPath, ['bin/glm-statusline-install.js', 'configure', '--show=plan,5h'], {
+  // The configure subcommand is gone with the field selector -> unknown command.
+  const configureGone = run(process.execPath, ['bin/glm-statusline-install.js', 'configure'], {
     env: {
-      GLM_STATUSLINE_CONFIG_FILE: installConfigFile,
-      GLM_STATUSLINE_CACHE_FILE: path.join(tempDir, 'configure-cache.json'),
+      GLM_STATUSLINE_SETTINGS_FILE: settingsFile,
+      GLM_STATUSLINE_LAUNCHER_FILE: launcherFile,
+      GLM_STATUSLINE_CONFIG_FILE: path.join(tempDir, 'gone-config.json'),
       ANTHROPIC_AUTH_TOKEN: '',
       ANTHROPIC_BASE_URL: '',
-      GLM_STATUSLINE_PLAN: 'GLM Lite',
     },
   });
-  assert.notStrictEqual(unsupportedConfigureArgs.status, 0);
-  assert.match(unsupportedConfigureArgs.stderr, /interactive selector/i);
-
-  const interactiveConfigFile = path.join(tempDir, 'interactive-config.json');
-  const interactive = run(process.execPath, ['bin/glm-statusline-install.js', 'configure'], {
-    input: '1\nq\n',
-    env: {
-      GLM_STATUSLINE_CONFIG_FILE: interactiveConfigFile,
-      GLM_STATUSLINE_CACHE_FILE: path.join(tempDir, 'interactive-cache.json'),
-      ANTHROPIC_AUTH_TOKEN: '',
-      ANTHROPIC_BASE_URL: '',
-      GLM_STATUSLINE_PLAN: 'GLM Lite',
-    },
-  });
-  assert.strictEqual(interactive.status, 0, interactive.stderr);
-  assert.match(interactive.stdout, /Select fields to show/);
-  assert.ok((interactive.stdout.match(/Preview:/g) || []).length >= 2);
-  // Fresh configure starts with every field selected; pressing 1 deselects plan.
-  assert.match(interactive.stdout, /1\. \[x\] plan/);
-  assert.match(interactive.stdout, /3\. \[x\] mcp/);
-  assert.match(interactive.stdout, /1\. \[ \] plan/);
-  const interactiveConfig = JSON.parse(fs.readFileSync(interactiveConfigFile, 'utf8'));
-  assert.deepStrictEqual(
-    interactiveConfig.display,
-    ['5h', 'mcp', 'context', 'model', 'effort', 'session', 'speed', 'day', '30d']
-  );
+  assert.notStrictEqual(configureGone.status, 0);
+  assert.match(configureGone.stderr, /Unknown command: configure/);
 
   const launcherStatus = run(process.execPath, [launcherFile], {
     input: JSON.stringify({
@@ -531,52 +446,68 @@ function verifyInstallerWorkflow({ isolatedDefaultConfigFile, tempDir }) {
       ANTHROPIC_BASE_URL: '',
       ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
       GLM_STATUSLINE_PLAN: '',
-      GLM_STATUSLINE_CONFIG_FILE: isolatedDefaultConfigFile,
       GLM_STATUSLINE_CACHE_TTL_MS: '1',
       COLUMNS: '120',
       CLAUDE_CODE_EFFORT_LEVEL: '',
     },
   });
   assert.strictEqual(launcherStatus.status, 0, launcherStatus.stderr);
-  // Default is every field; grouped rows auto-merge at COLUMNS=120 into two lines
+  // Every field; grouped rows auto-merge at COLUMNS=120 into two lines
   // (row1+row2 fit, row3 doesn't). Model/effort/plan pinned via env overrides.
   const launcherLines = launcherStatus.stdout.trim().split('\n');
   assert.strictEqual(launcherLines.length, 2, launcherStatus.stdout);
   assert.match(launcherLines[0], /^Model GLM-test │ Effort -- │ Speed -- t\/s · Avg -- t\/s │ Context .+ 12% │ Session 0 │ Day 0 │ 30D 0$/);
   assert.match(launcherLines[1], /^GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/);
 
+  // Uninstall also cleans up the legacy display config file it used to manage.
+  const uninstallConfigFile = path.join(tempDir, 'legacy-uninstall-config.json');
+  fs.writeFileSync(uninstallConfigFile, JSON.stringify({ display: ['plan'] }, null, 2));
   const uninstall = run(process.execPath, ['bin/glm-statusline-install.js', 'uninstall'], {
     env: {
       GLM_STATUSLINE_SETTINGS_FILE: settingsFile,
       GLM_STATUSLINE_LAUNCHER_FILE: launcherFile,
+      GLM_STATUSLINE_CONFIG_FILE: uninstallConfigFile,
     },
   });
   assert.strictEqual(uninstall.status, 0, uninstall.stderr);
   const uninstalledSettings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
   assert.strictEqual(uninstalledSettings.statusLine, undefined);
   assert.ok(!fs.existsSync(launcherFile), 'uninstall should remove the stable launcher file');
+  assert.ok(!fs.existsSync(uninstallConfigFile), 'uninstall should clean up the legacy config file');
+
+  // Unmanaged statusLine without --force -> nothing is touched, legacy config included.
+  const unmanagedSettingsFile = path.join(tempDir, 'unmanaged-settings.json');
+  fs.writeFileSync(unmanagedSettingsFile, JSON.stringify({ statusLine: { type: 'command', command: 'other-tool' } }, null, 2));
+  const unmanagedConfigFile = path.join(tempDir, 'unmanaged-legacy-config.json');
+  fs.writeFileSync(unmanagedConfigFile, JSON.stringify({ display: ['plan'] }, null, 2));
+  const unmanagedUninstall = run(process.execPath, ['bin/glm-statusline-install.js', 'uninstall'], {
+    env: {
+      GLM_STATUSLINE_SETTINGS_FILE: unmanagedSettingsFile,
+      GLM_STATUSLINE_LAUNCHER_FILE: path.join(tempDir, 'unmanaged-launcher.js'),
+      GLM_STATUSLINE_CONFIG_FILE: unmanagedConfigFile,
+    },
+  });
+  assert.strictEqual(unmanagedUninstall.status, 0, unmanagedUninstall.stderr);
+  assert.match(unmanagedUninstall.stdout, /Nothing changed/);
+  assert.ok(fs.existsSync(unmanagedConfigFile), 'unmanaged uninstall must not delete the legacy config file');
+
+  // --force overrides the refusal and cleans up.
+  const forcedUninstall = run(process.execPath, ['bin/glm-statusline-install.js', 'uninstall', '--force'], {
+    env: {
+      GLM_STATUSLINE_SETTINGS_FILE: unmanagedSettingsFile,
+      GLM_STATUSLINE_LAUNCHER_FILE: path.join(tempDir, 'unmanaged-launcher.js'),
+      GLM_STATUSLINE_CONFIG_FILE: unmanagedConfigFile,
+    },
+  });
+  assert.strictEqual(forcedUninstall.status, 0, forcedUninstall.stderr);
+  assert.ok(!fs.existsSync(unmanagedConfigFile), '--force uninstall should clean up the legacy config file');
 }
 
-// Corrupt files pin the two deliberate read contracts that lib/file-io.js readJsonFile unifies:
-// the status line must silently fall back (never crash Claude Code) while the installer must fail
-// loudly (users need to see their broken settings/config). These are behavior pins of the
-// pre-existing code and must stay green through any refactor of the readers.
+// Corrupt files pin the deliberate read contract that lib/file-io.js readJsonFile carries for
+// the installer: it must fail loudly (users need to see their broken settings), never silently
+// ignore the file. This is a behavior pin of the pre-existing code and must stay green through
+// any refactor of the readers.
 function verifyCorruptFilesAreHandled({ tempDir }) {
-  // Corrupt display config -> status line treats it as unconfigured: exit 0, every field shown.
-  const corruptConfigFile = path.join(tempDir, 'corrupt-config.json');
-  fs.writeFileSync(corruptConfigFile, 'this is not json {');
-  const corruptConfig = run(process.execPath, ['bin/glm-statusline.js'], {
-    input: JSON.stringify({
-      model: { display_name: 'Sonnet' },
-      context_window: { used_percentage: 12, context_window_size: 200000 },
-      transcript_path: path.join(tempDir, 'missing-transcript.jsonl'),
-    }),
-    env: baseEnv(corruptConfigFile, path.join(tempDir, 'corrupt-cache.json')),
-  });
-  assert.strictEqual(corruptConfig.status, 0, corruptConfig.stderr);
-  assert.match(corruptConfig.stdout, /5H/);
-  assert.match(corruptConfig.stdout, /Context/);
-
   // Corrupt settings -> install fails loudly instead of silently ignoring the user's file.
   const corruptSettingsFile = path.join(tempDir, 'corrupt-settings.json');
   fs.writeFileSync(corruptSettingsFile, 'this is not json {');
@@ -589,45 +520,26 @@ function verifyCorruptFilesAreHandled({ tempDir }) {
   });
   assert.notStrictEqual(installFailure.status, 0);
   assert.match(installFailure.stderr, /Cannot parse/);
-
-  // Corrupt config -> configure fails loudly AND throws before its first writeConfig, so the
-  // broken file is left untouched (a fallback-first reader that writes later would clobber it).
-  const configureFailure = run(process.execPath, ['bin/glm-statusline-install.js', 'configure'], {
-    input: 'q\n',
-    env: {
-      GLM_STATUSLINE_CONFIG_FILE: corruptConfigFile,
-      GLM_STATUSLINE_CACHE_FILE: path.join(tempDir, 'corrupt-cache.json'),
-    },
-  });
-  assert.notStrictEqual(configureFailure.status, 0);
-  assert.match(configureFailure.stderr, /Cannot parse/);
-  assert.strictEqual(fs.readFileSync(corruptConfigFile, 'utf8'), 'this is not json {');
 }
 
 async function verifyEffortAndContextFix({ tempDir }) {
   // Effort segment: level present renders it (Claude Code v2.1.119+ sends effort.level).
-  const effortConfig = path.join(tempDir, 'effort-config.json');
-  fs.writeFileSync(effortConfig, JSON.stringify({ display: ['model', 'effort'] }, null, 2));
   const effortStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ model: { display_name: 'Sonnet' }, effort: { level: 'high' } }),
-    env: baseEnv(effortConfig, path.join(tempDir, 'effort-cache.json')),
+    env: baseEnv(path.join(tempDir, 'effort-cache.json')),
   });
   assert.strictEqual(effortStatus.status, 0, effortStatus.stderr);
   assert.match(effortStatus.stdout, /Effort high/);
 
   // Effort absent (model doesn't support effort) -> honest placeholder, not blank.
-  const effortUnknownConfig = path.join(tempDir, 'effort-unknown-config.json');
-  fs.writeFileSync(effortUnknownConfig, JSON.stringify({ display: ['effort'] }, null, 2));
   const effortUnknown = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ model: { display_name: 'Sonnet' } }),
-    env: baseEnv(effortUnknownConfig, path.join(tempDir, 'effort-unknown-cache.json')),
+    env: baseEnv(path.join(tempDir, 'effort-unknown-cache.json')),
   });
   assert.strictEqual(effortUnknown.status, 0, effortUnknown.stderr);
   assert.match(effortUnknown.stdout, /Effort --/);
 
   const sessionId = 'ctx-fix-session';
-  const ctxConfig = path.join(tempDir, 'context-fix-config.json');
-  fs.writeFileSync(ctxConfig, JSON.stringify({ display: ['context'] }, null, 2));
 
   // Context null (early session / after /compact) -> --%, never 0%, with a fresh cache.
   const ctxFreshCache = path.join(tempDir, 'context-fresh-cache.json');
@@ -637,7 +549,7 @@ async function verifyEffortAndContextFix({ tempDir }) {
       context_window: { used_percentage: null, context_window_size: 200000 },
       session_id: sessionId,
     }),
-    env: baseEnv(ctxConfig, ctxFreshCache),
+    env: baseEnv(ctxFreshCache),
   });
   assert.strictEqual(ctxNullStatus.status, 0, ctxNullStatus.stderr);
   assert.match(ctxNullStatus.stdout, /Context .+ --%/);
@@ -654,7 +566,7 @@ async function verifyEffortAndContextFix({ tempDir }) {
       context_window: { used_percentage: null, context_window_size: 200000 },
       session_id: sessionId,
     }),
-    env: baseEnv(ctxConfig, ctxHoldCache),
+    env: baseEnv(ctxHoldCache),
   });
   assert.strictEqual(ctxHoldStatus.status, 0, ctxHoldStatus.stderr);
   assert.match(ctxHoldStatus.stdout, /Context .+ 37%/);
@@ -668,7 +580,7 @@ async function verifyEffortAndContextFix({ tempDir }) {
       context_window: { used_percentage: 42, context_window_size: 200000 },
       session_id: sessionId,
     }),
-    env: baseEnv(ctxConfig, ctxWriteCache),
+    env: baseEnv(ctxWriteCache),
   });
   assert.strictEqual(ctxRealStatus.status, 0, ctxRealStatus.stderr);
   assert.match(ctxRealStatus.stdout, /Context .+ 42%/);
@@ -689,7 +601,7 @@ async function verifyEffortAndContextFix({ tempDir }) {
       context_window: { used_percentage: 0, context_window_size: 200000 },
       session_id: sessionId,
     }),
-    env: baseEnv(ctxConfig, ctxZeroHoldCache),
+    env: baseEnv(ctxZeroHoldCache),
   });
   assert.strictEqual(ctxZeroHoldStatus.status, 0, ctxZeroHoldStatus.stderr);
   assert.match(ctxZeroHoldStatus.stdout, /Context .+ 37%/);
@@ -697,8 +609,6 @@ async function verifyEffortAndContextFix({ tempDir }) {
 }
 
 async function verifyTokenOutputSpeed({ tempDir }) {
-  const speedConfig = path.join(tempDir, 'speed-config.json');
-  fs.writeFileSync(speedConfig, JSON.stringify({ display: ['speed'] }, null, 2));
   const speedCache = path.join(tempDir, 'speed-cache.json');
   const speedTranscript = path.join(tempDir, 'speed-transcript.jsonl');
   const sessionId = 'speed-session';
@@ -718,11 +628,10 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   writeTranscript(200, new Date(Date.now() - 60000).toISOString());
   const first = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: sessionId, transcript_path: speedTranscript, cost: { total_api_duration_ms: 10000 } }),
-    env: baseEnv(speedConfig, speedCache),
+    env: baseEnv(speedCache),
   });
   assert.strictEqual(first.status, 0, first.stderr);
   assert.match(first.stdout, /Speed -- t\/s · Avg 20 t\/s/);
-  assert.strictEqual(first.stdout.trim().split('\n').length, 1, 'speed-only config renders a single line');
   const seededCache = JSON.parse(fs.readFileSync(speedCache, 'utf8'));
   assert.ok(seededCache[`speed:${sessionId}`], 'first render should seed the speed baseline');
   assert.strictEqual(seededCache[`speed:${sessionId}`].out, 200);
@@ -737,7 +646,7 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   );
   const zeroStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: 'speed-zero-session', transcript_path: zeroTranscript, cost: { total_api_duration_ms: 5000 } }),
-    env: baseEnv(speedConfig, zeroCache),
+    env: baseEnv(zeroCache),
   });
   assert.strictEqual(zeroStatus.status, 0, zeroStatus.stderr);
   assert.match(zeroStatus.stdout, /Speed -- t\/s · Avg -- t\/s/);
@@ -748,7 +657,7 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   writeTranscript(700, new Date().toISOString());
   const second = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: sessionId, transcript_path: speedTranscript, cost: { total_api_duration_ms: 15000 } }),
-    env: baseEnv(speedConfig, speedCache),
+    env: baseEnv(speedCache),
   });
   assert.strictEqual(second.status, 0, second.stderr);
   assert.match(second.stdout, /Speed 100 t\/s · Avg 100 t\/s/);
@@ -759,7 +668,7 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   fs.writeFileSync(speedCache, JSON.stringify(heldCache));
   const third = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: sessionId, transcript_path: speedTranscript, cost: { total_api_duration_ms: 15000 } }),
-    env: baseEnv(speedConfig, speedCache),
+    env: baseEnv(speedCache),
   });
   assert.strictEqual(third.status, 0, third.stderr);
   assert.match(third.stdout, /Speed 100 t\/s/);
@@ -782,20 +691,17 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   writeFallback(100, new Date(Date.now() - 10000).toISOString());
   await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: fallbackSession, transcript_path: fallbackTranscript }),
-    env: baseEnv(speedConfig, fallbackCache),
+    env: baseEnv(fallbackCache),
   });
   writeFallback(900, new Date().toISOString());
   const fallbackSecond = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: fallbackSession, transcript_path: fallbackTranscript }),
-    env: baseEnv(speedConfig, fallbackCache),
+    env: baseEnv(fallbackCache),
   });
   assert.strictEqual(fallbackSecond.status, 0, fallbackSecond.stderr);
   assert.match(fallbackSecond.stdout, /Speed \d+ t\/s · Avg -- t\/s/);
 
-  // 5. Speed shares the status line with another field: the two category rows merge onto one
-  //    line (group order puts speed's row first) whenever the combined width fits.
-  const mixedConfig = path.join(tempDir, 'speed-mixed-config.json');
-  fs.writeFileSync(mixedConfig, JSON.stringify({ display: ['session', 'speed'] }, null, 2));
+  // 5. Speed renders alongside every other field in the fixed grouped layout.
   const mixedCache = path.join(tempDir, 'speed-mixed-cache.json');
   fs.writeFileSync(mixedCache, '{}');
   const mixedTranscript = path.join(tempDir, 'speed-mixed-transcript.jsonl');
@@ -812,17 +718,16 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   writeMixed(400, new Date().toISOString());
   await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: mixedSession, transcript_path: mixedTranscript, cost: { total_api_duration_ms: 4000 } }),
-    env: baseEnv(mixedConfig, mixedCache),
+    env: baseEnv(mixedCache),
   });
   writeMixed(800, new Date().toISOString());
   const mixed = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: mixedSession, transcript_path: mixedTranscript, cost: { total_api_duration_ms: 8000 } }),
-    env: baseEnv(mixedConfig, mixedCache),
+    env: baseEnv(mixedCache),
   });
   assert.strictEqual(mixed.status, 0, mixed.stderr);
-  const mixedLines = mixed.stdout.trim().split('\n');
-  assert.strictEqual(mixedLines.length, 1, 'session+speed rows merge onto one line');
-  assert.match(mixedLines[0], /^Speed \d+ t\/s · Avg \d+ t\/s │ Session \d/);
+  assert.match(mixed.stdout, /Speed \d+ t\/s · Avg \d+ t\/s/);
+  assert.match(mixed.stdout, /Session \d/);
 
   // 6. /clear-style reset: cumulative output drops below the cached baseline (new session under a
   //    reused/lagging session_id, or a seed tick that captured a stale larger transcript). Without
@@ -842,7 +747,7 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   writeReset(10000, new Date(Date.now() - 60000).toISOString());
   await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: resetSession, transcript_path: resetTranscript, cost: { total_api_duration_ms: 20000 } }),
-    env: baseEnv(speedConfig, resetCache),
+    env: baseEnv(resetCache),
   });
   let resetCacheState = JSON.parse(fs.readFileSync(resetCache, 'utf8'));
   assert.strictEqual(resetCacheState[`speed:${resetSession}`].out, 10000);
@@ -850,7 +755,7 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   writeReset(50, new Date(Date.now() - 5000).toISOString());
   const resetDrop = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: resetSession, transcript_path: resetTranscript, cost: { total_api_duration_ms: 2000 } }),
-    env: baseEnv(speedConfig, resetCache),
+    env: baseEnv(resetCache),
   });
   assert.strictEqual(resetDrop.status, 0, resetDrop.stderr);
   assert.match(resetDrop.stdout, /Speed -- t\/s · Avg 25 t\/s/); // avg = 50 / (2000/1000) = 25
@@ -861,7 +766,7 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   writeReset(160, new Date().toISOString());
   const resetGrowth = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: resetSession, transcript_path: resetTranscript, cost: { total_api_duration_ms: 4000 } }),
-    env: baseEnv(speedConfig, resetCache),
+    env: baseEnv(resetCache),
   });
   assert.strictEqual(resetGrowth.status, 0, resetGrowth.stderr);
   // dOut = 160-50 = 110 over ΔapiMs (4000-2000)/1000 = 2s -> 55. Avg is anchored since the reset
@@ -888,12 +793,12 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   writeCarry(300, new Date(Date.now() - 60000).toISOString());
   await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: carrySession, transcript_path: carryTranscript, cost: { total_api_duration_ms: 180000 } }),
-    env: baseEnv(speedConfig, carryCache),
+    env: baseEnv(carryCache),
   });
   writeCarry(1300, new Date().toISOString());
   const carrySecond = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: carrySession, transcript_path: carryTranscript, cost: { total_api_duration_ms: 185000 } }),
-    env: baseEnv(speedConfig, carryCache),
+    env: baseEnv(carryCache),
   });
   assert.strictEqual(carrySecond.status, 0, carrySecond.stderr);
   assert.match(carrySecond.stdout, /Speed 200 t\/s · Avg 200 t\/s/);
@@ -917,14 +822,14 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   fs.writeFileSync(lossCache, 'this is not json {'); // loadCache -> {} on parse error
   const lossReSeed = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: lossSession, transcript_path: lossTranscript, cost: { total_api_duration_ms: 30000 } }),
-    env: baseEnv(speedConfig, lossCache),
+    env: baseEnv(lossCache),
   });
   assert.strictEqual(lossReSeed.status, 0, lossReSeed.stderr);
   assert.match(lossReSeed.stdout, /Speed -- t\/s · Avg 20 t\/s/); // seed tick: honest '--', avg = 600/30
   // Idle tick: shown is null -> falls back to the absolute average (600/30 = 20), NOT '--'.
   const lossIdle = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: lossSession, transcript_path: lossTranscript, cost: { total_api_duration_ms: 30000 } }),
-    env: baseEnv(speedConfig, lossCache),
+    env: baseEnv(lossCache),
   });
   assert.strictEqual(lossIdle.status, 0, lossIdle.stderr);
   assert.match(lossIdle.stdout, /Speed 20 t\/s · Avg 20 t\/s/);
@@ -942,7 +847,7 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   );
   const atomicRun = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: 'speed-atomic-session', transcript_path: atomicTranscript, cost: { total_api_duration_ms: 1000 } }),
-    env: baseEnv(speedConfig, atomicCache),
+    env: baseEnv(atomicCache),
   });
   assert.strictEqual(atomicRun.status, 0, atomicRun.stderr);
   const leakedTemps = fs.readdirSync(atomicDir).filter((f) => f.startsWith('cache.json.tmp.'));
@@ -963,7 +868,7 @@ async function verifyTokenOutputSpeed({ tempDir }) {
   fs.writeFileSync(dedupTranscript, `${dedupLine('thinking')}\n${dedupLine('text')}\n${dedupLine('tool_use')}\n`);
   const dedupRun = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
     input: JSON.stringify({ session_id: 'speed-dedup-session', transcript_path: dedupTranscript, cost: { total_api_duration_ms: 10000 } }),
-    env: baseEnv(speedConfig, dedupCache),
+    env: baseEnv(dedupCache),
   });
   assert.strictEqual(dedupRun.status, 0, dedupRun.stderr);
   // Avg = outputTokens / (apiMs/1000). Deduped outputTokens=1000 -> Avg 100. Over-counted would be 300.
@@ -974,17 +879,6 @@ async function verifyTokenOutputSpeed({ tempDir }) {
 async function verifyGroupedLayout({ tempDir }) {
   // 1. All fields on a narrow terminal -> exactly 3 category lines (model / session / quota),
   //    no merging (row1+row2 = 115 columns > 80). Model/plan pinned via env overrides.
-  const groupedConfigFile = path.join(tempDir, 'grouped-layout-config.json');
-  fs.writeFileSync(
-    groupedConfigFile,
-    JSON.stringify(
-      {
-        display: ['plan', '5h', 'mcp', 'context', 'effort', 'session', 'model', 'day', '30d', 'speed'],
-      },
-      null,
-      2
-    )
-  );
   const groupedCache = path.join(tempDir, 'grouped-layout-cache.json');
   fs.writeFileSync(groupedCache, '{}');
   const groupedInput = JSON.stringify({
@@ -993,7 +887,7 @@ async function verifyGroupedLayout({ tempDir }) {
     context_window: { used_percentage: 12, context_window_size: 200000 },
   });
   const groupedEnv = (columns) => ({
-    ...baseEnv(groupedConfigFile, groupedCache),
+    ...baseEnv(groupedCache),
     COLUMNS: columns,
     ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
     GLM_STATUSLINE_PLAN: '',
@@ -1032,89 +926,18 @@ async function verifyGroupedLayout({ tempDir }) {
     ultraLines[0],
     /^Model GLM-test │ Effort high │ Speed .+ │ Context .+ 12% │ Session 0 │ Day 0 │ 30D 0 │ GLM │ 5H ░░░░░░░░ 0% @--:-- │ MCP ░░░░░░░░ 0% @--$/
   );
-
-  // 1d. Auto-merge picks up mid-stream: a wide row1 that can't take row2 still lets row2+row3
-  //     merge (COLUMNS=60: row1=56 alone, row1+row2=115 doesn't fit, row2+row3=31 does).
-  const bigRowOneConfigFile = path.join(tempDir, 'grouped-big-row1-config.json');
-  fs.writeFileSync(
-    bigRowOneConfigFile,
-    JSON.stringify({ display: ['model', 'effort', 'speed', 'session', 'day', '30d', 'plan'] }, null, 2)
-  );
-  const bigRowOneCache = path.join(tempDir, 'grouped-big-row1-cache.json');
-  fs.writeFileSync(bigRowOneCache, '{}');
-  const bigRowOne = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
-    input: groupedInput,
-    env: {
-      ...baseEnv(bigRowOneConfigFile, bigRowOneCache),
-      COLUMNS: '60',
-      ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-test',
-      GLM_STATUSLINE_PLAN: '',
-    },
-  });
-  assert.strictEqual(bigRowOne.status, 0, bigRowOne.stderr);
-  const bigRowOneLines = bigRowOne.stdout.trim().split('\n');
-  assert.strictEqual(bigRowOneLines.length, 2, `expected row1 alone + merged row2+row3, got:\n${bigRowOne.stdout}`);
-  assert.match(bigRowOneLines[0], /^Model GLM-test │ Effort high │ Speed -- t\/s · Avg -- t\/s$/);
-  assert.match(bigRowOneLines[1], /^Session 0 │ Day 0 │ 30D 0 │ GLM$/);
-
-  // 2. In grouped mode, speed shares its row (model / effort / speed), no dedicated trailing line.
-  const speedConfig = path.join(tempDir, 'grouped-speed-config.json');
-  fs.writeFileSync(speedConfig, JSON.stringify({ display: ['model', 'speed'] }, null, 2));
-  const speedCache = path.join(tempDir, 'grouped-speed-cache.json');
-  fs.writeFileSync(speedCache, '{}');
-  const speedTranscript = path.join(tempDir, 'grouped-speed-transcript.jsonl');
-  const speedSession = 'grouped-speed-session';
-  const writeSpeed = (outTokens, isoTs) => {
-    fs.writeFileSync(
-      speedTranscript,
-      `${JSON.stringify({
-        timestamp: isoTs,
-        message: { usage: { input_tokens: 1000, output_tokens: outTokens } },
-      })}\n`
-    );
-  };
-  writeSpeed(400, new Date().toISOString());
-  await runAsync(process.execPath, ['bin/glm-statusline.js'], {
-    input: JSON.stringify({
-      model: { display_name: 'Sonnet' },
-      session_id: speedSession,
-      transcript_path: speedTranscript,
-      cost: { total_api_duration_ms: 4000 },
-    }),
-    env: baseEnv(speedConfig, speedCache),
-  });
-  writeSpeed(800, new Date().toISOString());
-  const speedStatus = await runAsync(process.execPath, ['bin/glm-statusline.js'], {
-    input: JSON.stringify({
-      model: { display_name: 'Sonnet' },
-      session_id: speedSession,
-      transcript_path: speedTranscript,
-      cost: { total_api_duration_ms: 8000 },
-    }),
-    env: baseEnv(speedConfig, speedCache),
-  });
-  assert.strictEqual(speedStatus.status, 0, speedStatus.stderr);
-  const speedLines = speedStatus.stdout.trim().split('\n');
-  assert.strictEqual(
-    speedLines.length,
-    1,
-    `speed should share the model row in grouped mode, got:\n${speedStatus.stdout}`
-  );
-  assert.match(speedLines[0], /^Model .*Speed \d+ t\/s · Avg/);
 }
 
 async function main() {
   verifyProjectMetadata();
 
-  const isolatedDefaultConfigFile = path.join(os.tmpdir(), `missing-glm-statusline-config-${process.pid}.json`);
-  verifyDefaultStatusLine(isolatedDefaultConfigFile);
-
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glm-statusline-plugin-'));
+  verifyDefaultStatusLine(tempDir);
+
   const transcriptFile = path.join(tempDir, 'transcript.jsonl');
   const cacheFile = path.join(tempDir, 'glm-statusline-cache.json');
-  const configFile = path.join(tempDir, 'glm-statusline-config.json');
   writeTranscriptFixture(transcriptFile);
-  const context = { cacheFile, configFile, isolatedDefaultConfigFile, tempDir, transcriptFile };
+  const context = { cacheFile, tempDir, transcriptFile };
 
   await verifyApiBackedStatusLine(context);
   await verifyDebugLogging(context);

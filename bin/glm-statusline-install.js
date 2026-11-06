@@ -16,14 +16,9 @@ const {
   readJsonFile,
   // 通用 JSON 写入（2 空格缩进 + 末尾换行；出错冒泡）
   writeJsonFile,
+  // 遗留配置文件路径解析（env 覆盖 → 默认 + ~ 展开；uninstall 清理用）
+  configFilePath,
 } = require('../lib/file-io');
-// 交互式配置库（/glm-statusline:configure 的勾选界面；renderPreview 由本安装器注入）
-const {
-  // configure 子命令
-  configure,
-  // 配置文件路径（renderPreview 的子进程 env 要指向同一文件）
-  CONFIG_FILE,
-} = require('../lib/interactive-configure');
 
 // 本插件源码根目录（bin/ 的上一级）
 const PLUGIN_ROOT = path.resolve(__dirname, '..');
@@ -167,8 +162,8 @@ function renderPreview() {
       // transcript 留空（会话 token 显示 0）
       transcript_path: '',
     }),
-    // 让预览读到刚保存的配置文件
-    env: { ...process.env, GLM_STATUSLINE_CONFIG_FILE: CONFIG_FILE },
+    // 子进程继承当前 env（状态栏不读配置文件，无需额外注入）
+    env: process.env,
     // 以 UTF-8 解码子进程输出
     encoding: 'utf8',
   });
@@ -184,10 +179,10 @@ function renderPreview() {
 function printInstallNextSteps() {
   // 空行分隔
   console.log('');
-  // 提示运行 configure 选择字段
-  console.log('Next step: run /glm-statusline:configure to choose which fields are shown.');
-  // 说明每次选择即时保存并刷新预览
-  console.log('Each selection saves immediately and prints a fresh preview.');
+  // 说明字段固定全显，没有可配置项
+  console.log('The status line always shows all fields; there is nothing to configure.');
+  // 说明刷新时机
+  console.log('It refreshes automatically as you use Claude Code.');
 }
 
 // install 子命令：写启动器 + 改 settings
@@ -197,10 +192,10 @@ async function install(args = []) {
     // 报错
     throw new Error(`Status line launcher not found: ${LAUNCHER}`);
   }
-  // install 不接受 display 参数（选字段是 configure 的事）
+  // install 不接受任何参数
   if (args.length) {
-    // 报错引导
-    throw new Error('Install does not take display arguments. Run /glm-statusline:configure after install.');
+    // 报错
+    throw new Error('Install does not take arguments.');
   }
   // 写稳定启动器
   writeStableLauncher();
@@ -284,6 +279,13 @@ function uninstall(force = false) {
     // （启动器不存在则忽略 —— 英文原注释）
     // Ignore missing launcher.
   }
+  // 清理遗留的 display 配置文件（状态栏已不再读取它；只有过去的 configure 会写过）。
+  // 尽力而为：不存在/不可删都静默忽略（此后正常情况就是不存在）。
+  try {
+    fs.unlinkSync(configFilePath(process.env));
+  } catch (_) {
+    // Ignore missing/unreadable legacy config file.
+  }
   // 告知已禁用
   console.log(`GLM StatusLine disabled in ${SETTINGS_FILE}`);
   // 有备份则提示备份位置
@@ -295,14 +297,13 @@ function printUsage() {
   // （多行模板串：子命令与环境变量清单，内部不插注释）
   console.log(`Usage:
   glm-statusline-install.js install
-  glm-statusline-install.js configure
   glm-statusline-install.js uninstall [--force]
   glm-statusline-install.js print-command
 
 Environment:
   GLM_STATUSLINE_SETTINGS_FILE  Override the settings file for tests or project-local installs.
   GLM_STATUSLINE_LAUNCHER_FILE  Override the stable launcher file for tests.
-  GLM_STATUSLINE_CONFIG_FILE    Override the display config file.
+  GLM_STATUSLINE_CONFIG_FILE    Override the legacy config file (cleaned up by uninstall).
 `);
 }
 
@@ -314,13 +315,6 @@ async function main() {
   if (command === 'install' || command === 'enable') {
     // 执行安装
     await install(args);
-    // 结束
-    return;
-  }
-  // configure / config 别名
-  if (command === 'configure' || command === 'config') {
-    // 执行交互配置（注入预览回调 —— renderPreview 需要本安装器的 LAUNCHER/PLUGIN_ROOT）
-    await configure(args, { renderPreview });
     // 结束
     return;
   }
