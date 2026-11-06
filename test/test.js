@@ -137,6 +137,10 @@ function verifyProjectMetadata() {
   const installSkill = fs.readFileSync(path.join(root, 'skills/install/SKILL.md'), 'utf8');
   assert.doesNotMatch(installSkill, /--show|--layout|--bar-width|argument-hint/);
 
+  // Row merging is gone; the layout module must not describe it (English prose included).
+  const displayFieldsSource = fs.readFileSync(path.join(root, 'lib/display-fields.js'), 'utf8');
+  assert.doesNotMatch(displayFieldsSource, /auto-merge|mergeRows|segmentsWidth/);
+
   const skillsGuide = fs.readFileSync(
     path.join(root, 'docs/claude-code-skills-and-extensions-guide.md'),
     'utf8'
