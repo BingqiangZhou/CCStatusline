@@ -1,6 +1,6 @@
 # GLM StatusLine · Claude Code 状态栏插件
 
-**GLM StatusLine** 是一个 Claude Code 状态栏插件，在 Claude Code 底部显示 GLM / Z.ai 的用量：5 小时额度、MCP/tools 额度、上下文占比、会话 token、当天 / 30 天用量、映射后的模型名、effort 等级、输出速度等。全部字段固定显示，按类别分行，终端宽度自适应换行与合并。
+**GLM StatusLine** 是一个 Claude Code 状态栏插件，在 Claude Code 底部显示 GLM / Z.ai 的用量：5 小时额度、MCP/tools 额度、上下文占比、会话 token、当天 / 30 天用量、映射后的模型名、effort 等级、输出速度等。全部字段固定显示，按类别固定分三行，行内按终端宽度自适应折行。
 
 它不是 GLM、Z.ai 或 Claude Code 的官方插件，只是一个个人实验项目。
 
@@ -24,7 +24,7 @@
 
 插件会把 `bin/glm-statusline.js` 注册为 Claude Code 的 `statusLine` 命令，在 Claude Code 底部显示 GLM Coding Plan 的关键用量。
 
-当前状态栏输出类似（字段按类别分行；终端更宽时相邻行会自动合并，见下文「布局」一节）：
+当前状态栏输出类似（字段按类别固定分三行；某一行超过终端宽度时在字段边界自动折行，见下文「布局」一节）：
 
 ```text
 Model glm-4.6 │ Effort high │ Speed 100 t/s · Avg 96 t/s
@@ -73,7 +73,7 @@ Claude Code 刷新
      └─ spawnSync 子进程，转发 stdin/stdout/env，透传退出码
          └─ 进程②  bin/glm-statusline.js（核心本体，经 ../lib/ 引用共享模块）→ 顶层 main()
              ├─ 读 stdin：Claude Code 传入的会话 JSON
-             └─ renderStatusLine(…) → stdout 打出 1–3 行 → 进程退出
+             └─ renderStatusLine(…) → stdout 打出固定 3 行 → 进程退出
 ```
 
 **一帧内部（`renderStatusLine`）**——三条数据来源汇成字段表，再排版输出：
@@ -92,20 +92,19 @@ GLM / Z.ai monitor API（60s 缓存）
 
 fields 字段表
  → groupRows        按固定分组归入 3 个类别行（lib/display-fields.js）
- → mergeRows        相邻行宽度之和 ≤ 终端宽度时贪心合并成更少行
- → wrapSegments     仍超宽的行在字段边界内换行（CJK 与 ░▒▓█ 按 2 列计）
- → 输出 1–3 行
+ → wrapSegments     超宽的行在字段边界内换行（CJK 与 ░▒▓█ 按 2 列计）
+ → 输出固定 3 行
 ```
 
 三个要点贯穿这条链路：
 
 - **跨帧状态全部在缓存文件里**（`~/.claude/glm-statusline-cache.json`）：上下文保持值、速度基线、API 结果都存在这里；因为每帧进程即起即灭，且多个项目的进程会并发写同一个文件，所以写入用原子写（临时文件 + `rename`），一帧只读一次、写一次。
-- **各字段的取数细节**见下文[「字段数据来源」](#字段数据来源每项怎么来的)，排版规则见[「布局」](#布局分组多行--自动合并)。
+- **各字段的取数细节**见下文[「字段数据来源」](#字段数据来源每项怎么来的)，排版规则见[「布局」](#布局分组三行--行内折行)。
 - **任何一步失败都不会搞挂 Claude Code**：`main().catch` 兜底输出一行占位文本，API 失败回退缓存值再回退默认值。
 
-#### 布局（分组多行 + 自动合并）
+#### 布局（分组三行 + 行内折行）
 
-状态栏统一使用分组多行布局，固定渲染全部字段（没有单行布局，也没有字段选择配置；旧配置文件里残留的 `layout` / `display` 键会被完全忽略）。字段按固定分组归入三行，屏幕上的顺序以分组为准：
+状态栏统一使用分组三行布局，固定渲染全部字段（没有单行布局，也没有字段选择配置；旧配置文件里残留的 `layout` / `display` 键会被完全忽略）。字段按固定分组归入三行，屏幕上的顺序以分组为准：
 
 - 第 1 行：`model`、`effort`、`speed`
 - 第 2 行：`context`、`session`、`day`、`30d`
@@ -113,7 +112,7 @@ fields 字段表
 
 `speed` 并入第 1 行（与 `model`、`effort` 同行）。
 
-**行自动合并**：相邻两行（甚至三行）的总显示宽度不超过终端宽度（`COLUMNS` 环境变量，默认 80）时，会自动合并成一行——宽终端上可能只显示两行甚至一行。合并以整行为单位、按行序贪心累积，绝不把某一行拆散与别行穿插；某一行自身超过终端宽度时，仍在字段边界自动换行。宽度计算正确处理 CJK 字符和 `░▒▓█` 渐变字符（按 2 列计）。
+**行内折行**：三行各自独立输出，不随终端宽度合并。某一行自身超过终端宽度（`COLUMNS` 环境变量，默认 80）时，在字段边界自动换行——单个字段段保持完整，不会被拆到两处。宽度计算正确处理 CJK 字符和 `░▒▓█` 渐变字符（按 2 列计）。
 
 #### 字段数据来源（每项怎么来的）
 
@@ -233,7 +232,8 @@ npm test
 - `bin/`、`skills/`、`docs/` 必要文件是否存在。
 - status line 在模拟 Claude Code stdin 下能正常输出。
 - 遗留的 display 配置文件被完全忽略（状态栏固定全显）。
-- 状态栏会根据终端宽度自动换行与合并。
+- 状态栏固定输出 3 行分组行，某一行超过终端宽度时在字段边界自动折行。
+- 宽终端（如 `COLUMNS=200`）下三行仍保持独立、不合并。
 - `--preview` 可以打印状态栏预览。
 - `--plan-details` 能展示 5H、MCP、Weekly、Day、30D 等信息。
 - install / uninstall 是否正确写入和移除 settings，uninstall 是否清理遗留配置文件。

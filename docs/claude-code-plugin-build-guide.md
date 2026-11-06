@@ -108,10 +108,10 @@ glm-statusline-install.js uninstall
 - Transcript token 统计：`readJsonlTokenStats()` 解析当前会话 JSONL transcript，把 input、output、cache creation、cache read token 累加成 Session 总量。
 - Day/30D 统计：`fetchModelUsage()` 请求智谱/Z.ai `/api/monitor/usage/model-usage`，按官方 `yyyy-MM-dd HH:mm:ss` 时间格式传入当天和近 30 天窗口；这些数据在状态栏 `day` / `30d` 字段（恒显）和 `/glm-statusline:plan-details` 中显示。
 - 5H reset：常驻状态栏显示 `5H ... @HH:mm`；优先使用 quota 接口 5H limit 的 `nextResetTime`，接口未返回时使用 quota 数据最后一次成功刷新的时间。
-- 渲染：`renderStatusLine()` 固定渲染全部字段并组合状态栏，根据当前终端宽度（`COLUMNS` 环境变量）合并分组行、在字段边界自动换行；`lib/statusline-format.js` 中的 `displayLength()` 正确计算 CJK 和 `█░` 块字符的显示宽度；`renderBar()`、`formatTokens()`、`formatTimeHHmm()` 和 `formatAge()` 负责具体格式；`renderPlanDetails()` 负责 plan details 命令输出。
+- 渲染：`renderStatusLine()` 固定渲染全部字段并组合状态栏，按固定分组行输出，某行超过当前终端宽度（`COLUMNS` 环境变量）时在字段边界自动折行；`lib/statusline-format.js` 中的 `displayLength()` 正确计算 CJK 和 `█░` 块字符的显示宽度；`renderBar()`、`formatTokens()`、`formatTimeHHmm()` 和 `formatAge()` 负责具体格式；`renderPlanDetails()` 负责 plan details 命令输出。
 - 容错：`main()` 的 catch handler 保证脚本崩溃时也输出安全兜底状态栏；API、JSON 和缓存错误默认安静降级，调试信息只在 `GLM_STATUSLINE_DEBUG=1` 时输出到 stderr。
 
-最终输出形态（分组多行，宽终端自动合并）：
+最终输出形态（固定分组三行，行内超宽折行）：
 
 ```text
 Model glm-4.6 │ Effort high │ Speed 100 t/s · Avg 96 t/s
@@ -171,7 +171,7 @@ npm test
 - 用 `test/fixtures/` 固定 quota、day usage、30D usage 的样例响应，避免测试数据散落在长脚本里。
 - `GLM_STATUSLINE_DEBUG=1` 时，API 失败会向 stderr 输出 quota/model-usage 错误来源；默认模式仍保持安静兜底。
 - `bin/glm-statusline.js` 固定渲染全部字段；遗留的 display 配置文件被完全忽略。
-- `bin/glm-statusline.js` 能根据终端宽度在字段边界自动换行、合并分组行。
+- `bin/glm-statusline.js` 固定输出 3 行分组行，能根据终端宽度在字段边界自动折行，宽终端下也不合并。
 - `bin/glm-statusline.js --preview` 能输出 `Preview:` 和状态栏预览。
 - `bin/glm-statusline.js --plan-details` 能输出 plan、5H、MCP、可选 weekly、Day/30D 和 API/cache 状态。
 - `bin/glm-statusline-install.js install` 能在临时 settings 文件中写入正确 `statusLine`（含 `refreshInterval: 30`、`padding: 0`）。

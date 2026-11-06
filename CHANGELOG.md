@@ -6,7 +6,8 @@
 
 - 移除了「选择显示字段」功能：状态栏现在固定渲染全部 10 个字段（固定分组布局），没有 `display` 配置，也不再读取任何配置文件。旧版本遗留的 `~/.claude/glm-statusline-config.json` 会被完全忽略，`uninstall` 时顺带清理。
 - 移除了 `/glm-statusline:configure` 命令、交互式字段选择界面（`lib/interactive-configure.js`）与 `skills/configure`；安装器的 `configure` 子命令同步移除（现为未知命令）。
-- `day` / `30D` 字段随全字段常显，model-usage API 改为每帧尝试请求（仍受 60 秒共享缓存约束，实际请求频率不变）。
+- `day` / `30D` 字段随全字段常显，model-usage API 改为每帧尝试请求（仍受 60 秒共享缓存约束，默认配置下请求频率不变）。
+- 状态栏固定输出 3 行分组行，移除了按终端宽度自动合并相邻行的行为；单行超出终端宽度时仍在字段边界内自动折行（`COLUMNS` 仍生效），`mergeRows` / `segmentsWidth` 已从 `lib/statusline-format.js` 移除。
 
 ## 1.2.22 - 2026-06-15
 

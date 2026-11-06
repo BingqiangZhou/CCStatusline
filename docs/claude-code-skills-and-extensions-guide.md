@@ -359,9 +359,9 @@ Monitors 适合“Claude 应该被动知道外部状态变化”的场景。它�
    - 支持国内 `open.bigmodel.cn` 和国际 `api.z.ai`。
 
 3. 更独立的 `/glm-statusline:preview`
-   - 当前 `glm-statusline.js --preview` 已经能打印选择后的状态栏效果。
+   - 当前 `glm-statusline.js --preview` 已经能打印全部字段固定布局的状态栏效果。
    - 后续可以单独包装成 skill，用模拟 stdin 或当前 session 数据预览状态栏输出。
-   - 适合用户修改显示字段、`BAR_WIDTH`、`CONTEXT_WINDOW` 后确认效果。
+   - 适合用户修改 `GLM_STATUSLINE_CONTEXT_WINDOW` 之类的环境变量后确认折行效果。
 
 4. Hook 自动诊断
    - 在 `ConfigChange` 或 `SessionStart` 时检查 status line 配置是否仍指向有效脚本。
