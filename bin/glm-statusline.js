@@ -2,17 +2,17 @@
 /**
  * glm-statusline.js
  *
- * A single-file Claude Code statusLine script for GLM Coding Plan.
+ * GLM Coding Plan 的 Claude Code 状态栏脚本（渲染编排入口，共享功能在 ../lib/ 各模块）。
  *
- * Output (3 fixed grouped rows, one per line; an over-wide row wraps at field boundaries):
+ * 输出（固定分组三行，每行一组；某行超出终端宽度时在字段边界内折行）：
  *   Model GLM-4.6 │ Effort high │ Speed 42 t/s · Avg 38 t/s
  *   Context ▓░░░░░░ 12% │ Session 160K │ Day 42.8M │ 30D 3.1B
  *   GLM Coding Plan │ 5H ██░░░░░░ 22% @18:30 │ MCP █░░░░░░░ 8% @06-14
  *
- * Details:
+ * 详情视图：
  *   glm-statusline.js --plan-details
  *
- * Usage in ~/.claude/settings.json:
+ * 在 ~/.claude/settings.json 中的用法：
  * {
  *   "env": {
  *     "ANTHROPIC_AUTH_TOKEN": "your-token",
@@ -201,11 +201,11 @@ function cacheAgeFor(key) {
 function apiHostLabel(baseRoot) {
   // 没配置 → "not configured"
   if (!baseRoot) return 'not configured';
-  // try 解析
+  // try：解析
   try {
     // 取 host
     return new URL(baseRoot).host;
-  // catch
+  // catch：解析失败
   } catch (_) {
     // 原样返回
     return baseRoot;
@@ -228,7 +228,7 @@ function isPreviewMode() {
 async function renderPlanDetails() {
   // 合并 env（此模式没有会话上下文）
   const env = mergeEnvFromSettings({});
-  // base URL
+  // 归一 base URL
   const baseRoot = normalizeBaseRoot(env.ANTHROPIC_BASE_URL || '');
   // 配额缓存键（报告"缓存年龄"用）
   const quotaCacheKey = `quota:${baseRoot}`;
@@ -307,11 +307,9 @@ async function renderStatusLine(sessionContext = {}) {
   // 读会话累计 token
   const sessionTokens = readJsonlTokenStats(transcriptPath);
 
-  // One cache read + one cache write per render: each field mutates this shared object and flags it
-  // dirty via markCache, then a single saveCache persists everything. This replaces the old pattern
-  // where each field did its own loadCache+saveCache (~4 whole-file reads + ~4 whole-file writes per
-  // render). The write window also shrinks ~4×, lowering the chance of racing another project's write.
-  // 每渲染一次读缓存：本次渲染所有字段共用这个对象（见下方英文注释）
+  // 每渲染一次读缓存 + 一次写缓存：所有字段改动这同一个共享对象、经 markCache 只标脏，
+  // 结尾的一次 saveCache 统一落盘。这取代了原先每个字段各自 loadCache+saveCache 的模式
+  //（一次渲染约 4 次整文件读 + 4 次整文件写），写窗口也缩小约 4 倍，降低与其它项目并发写撞车的概率。
   const cache = loadCache();
   // 脏标记
   let cacheDirty = false;
@@ -403,7 +401,7 @@ async function main() {
 
 // 兜底：任何未捕获异常都不能搞挂 Claude Code
 main().catch((err) => {
-  // Keep Claude Code usable even if the script crashes.
+  // 即使脚本崩溃也要保住 Claude Code 可用（永远有输出）
   // 取错误信息
   const msg = err && err.message ? err.message : String(err);
   // plan-details 模式的兜底文本

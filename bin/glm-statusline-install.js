@@ -276,15 +276,14 @@ function uninstall(force = false) {
     fs.unlinkSync(STABLE_LAUNCHER_FILE);
   // catch：删除失败
   } catch (_) {
-    // （启动器不存在则忽略 —— 英文原注释）
-    // Ignore missing launcher.
+    // 启动器不存在则忽略
   }
   // 清理遗留的 display 配置文件（状态栏已不再读取它；只有过去的 configure 会写过）。
   // 尽力而为：不存在/不可删都静默忽略（此后正常情况就是不存在）。
   try {
     fs.unlinkSync(configFilePath(process.env));
   } catch (_) {
-    // Ignore missing/unreadable legacy config file.
+    // 遗留配置文件不存在/不可删则忽略
   }
   // 告知已禁用
   console.log(`GLM StatusLine disabled in ${SETTINGS_FILE}`);
