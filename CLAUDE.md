@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Claude Code **status line plugin** ("GLM StatusLine") that shows GLM / Z.ai usage (5H quota, MCP/tools quota, context %, session tokens, day/30D usage, mapped model name, effort level, output speed) in the Claude Code status bar. It is also a learning project: `notes/` holds 11 study notes on the Claude Code plugin system (in Chinese) with this plugin as the worked example, and `docs/` holds two longer-form English guides (`docs/claude-code-plugin-build-guide.md`, `docs/claude-code-skills-and-extensions-guide.md`).
 
-**Zero dependencies** — Node.js standard library only (`fs`, `path`, `os`, `http`, `https`, `url`, `child_process`, `readline`, `assert`). There is no `npm install` step. Node 18+.
+**Zero dependencies** — Node.js standard library only (`fs`, `path`, `os`, `http`, `https`, `url`, `child_process`, `assert`). There is no `npm install` step. Node 18+.
 
 ## Commands
 
@@ -15,7 +15,7 @@ npm test                              # runs test/test.js — the only test harn
 npm run statusline                    # runs bin/glm-statusline.js (pipes a session JSON via stdin)
 node bin/glm-statusline.js --plan-details # detailed plan view
 node bin/glm-statusline.js --preview      # status line with a "Preview:" prefix
-node bin/glm-statusline-install.js install|configure|uninstall [--force]|print-command
+node bin/glm-statusline-install.js install|uninstall [--force]|print-command
 ```
 
 `npm test` is the gate. It has no test framework — it's plain `assert` plus a local Node `http` fixture server (`createFixtureApiServer`) serving `test/fixtures/*.json`. It spawns the real `bin/` scripts as child processes. When debugging, read `test/test.js` directly; each `verify*` function is an isolated scenario you can lift into a scratch script.
@@ -27,21 +27,21 @@ echo '{"model":{"display_name":"Sonnet"},"context_window":{"used_percentage":12,
 
 ### Test-isolation env vars (required when scripting runs)
 The verifier and any manual testing must point at throwaway files instead of the user's real `~/.claude/*`:
-`GLM_STATUSLINE_CONFIG_FILE`, `GLM_STATUSLINE_CACHE_FILE`, `GLM_STATUSLINE_SETTINGS_FILE`, `GLM_STATUSLINE_LAUNCHER_FILE`, `GLM_STATUSLINE_PLUGIN_CACHE_ROOT`. Setting `ANTHROPIC_AUTH_TOKEN=''` + `ANTHROPIC_BASE_URL=''` makes `fetchQuota`/`fetchModelUsage` short-circuit to their fallback values without hitting the network.
+`GLM_STATUSLINE_CONFIG_FILE` (redirects the legacy config file that `uninstall` cleans up — the status line itself no longer reads any config file), `GLM_STATUSLINE_CACHE_FILE`, `GLM_STATUSLINE_SETTINGS_FILE`, `GLM_STATUSLINE_LAUNCHER_FILE`, `GLM_STATUSLINE_PLUGIN_CACHE_ROOT`. Setting `ANTHROPIC_AUTH_TOKEN=''` + `ANTHROPIC_BASE_URL=''` makes `fetchQuota`/`fetchModelUsage` short-circuit to their fallback values without hitting the network.
 
 ## Architecture
 
 Two layers; read top-down. (The core used to live at the repo root with `bin/glm-statusline.js` as a one-line shim requiring it; it was moved into `bin/` so the entry **is** the implementation — `bin/` is the plugin's PATH-injected directory, and nothing functional pins the root path.)
 
 **1. Entry + core orchestrator (`bin/`)**
-- `bin/glm-statusline.js` — the render orchestrator + `main`, and what Claude Code's `statusLine.command` ultimately invokes (via the stable launcher). All standalone functionality lives in `../lib/*`; the orchestrator keeps env/config resolution (`mergeEnvFromSettings`, `readStatusConfig`, `readMaxWidth`, `readJsonSafe`, `normalizeBaseRoot`→imported), the `fields` map, layout/merge/wrap, `renderPlanDetails`, `readStdinJson`, and the top-level fallback. The flow for every status-line render is `renderStatusLine(sessionContext)`:
+- `bin/glm-statusline.js` — the render orchestrator + `main`, and what Claude Code's `statusLine.command` ultimately invokes (via the stable launcher). All standalone functionality lives in `../lib/*`; the orchestrator keeps env resolution (`mergeEnvFromSettings`), width resolution (`readMaxWidth`), `readJsonSafe`, `normalizeBaseRoot`→imported, the `fields` map, layout/merge/wrap, `renderPlanDetails`, `readStdinJson`, and the top-level fallback. There is **no config file** — every field always renders. The flow for every status-line render is `renderStatusLine(sessionContext)`:
 1. `mergeEnvFromSettings` — merge `env` across three settings layers (`~/.claude/settings.json` → `<cwd>/.claude/settings.json` → `<cwd>/.claude/settings.local.json`), then layer `process.env` on top. This is *why* the status line works regardless of which project directory Claude Code is in.
-2. `fetchQuota` (quota/limit API) + conditionally `fetchModelUsage` (day/month token API). Both check the JSON cache (`~/.claude/glm-statusline-cache.json`, default 60 s TTL) before hitting the network. **`model-usage` is only fetched when `day` or `30d` is in the display list** (`needsDay`/`needsMonth`) — a deliberate cost gate.
-3. Build a `fields` map. Partition the selected fields via `groupDisplay`, merge adjacent rows that fit one terminal line via `mergeRows`, and render each resulting row through `wrapSegments` (a row wider than the terminal still wraps within itself).
+2. `fetchQuota` (quota/limit API) + `fetchModelUsage` (day/month token API, always fetched). Both check the JSON cache (`~/.claude/glm-statusline-cache.json`, default 60 s TTL) before hitting the network — the 60 s cache is the only cost gate.
+3. Build a `fields` map. Partition all fields via `groupRows`, merge adjacent rows that fit one terminal line via `mergeRows`, and render each resulting row through `wrapSegments` (a row wider than the terminal still wraps within itself).
 
-**2. Shared library (`lib/`)** — dependency layering is acyclic: file-io → {status-cache, transcript-stats, model-mapping} → {quota-parsing, monitor-api, session-metrics} → orchestrator; `interactive-configure` sits beside the installer.
-- `lib/display-fields.js` — the canonical field set, order, labels, and config normalization. `DISPLAY_FIELDS` (`['plan','5h','mcp','context','model','effort','session','speed','day','30d']`) is the single source of truth for ordering; when `display` is unconfigured (or entirely invalid) every `DISPLAY_FIELDS` field is shown — there is no separate default set (`displayOrDefault` bundles that normalize+fallback). `FIELD_GROUPS` + `groupDisplay()` (same file) assign fields to category rows — see [Layout](#layout-grouped-rows-auto-merge).
-- `lib/file-io.js` — the shared file-I/O primitives used by **both** the orchestrator and the installer (they used to carry duplicate same-named copies). `readJsonFile(path, {fallback, throwOnParse, onError})` unifies the two deliberately different error contracts: the status line passes nothing (any error silently falls back to `null` — it must never crash Claude Code; core wraps it as `readJsonSafe` to add the debug log) while the installer/configure passes `{fallback: {}, throwOnParse: true}` (corrupt settings/config must throw `Cannot parse <path>`). `writeJsonFile(path, value, {atomic, newline, swallowErrors, onError})` backs `saveCache` (`atomic: true` temp+rename) and the installer's settings/config writes (`newline: true`, errors rethrow). `forEachTranscriptLine(path, visit)` is the transcript-JSONL walker that owns the `message.id` dedup protocol (see the Transcript usage dedup invariant). `expandHome` + `configFilePath(env)` single-source the config-file path (`GLM_STATUSLINE_CONFIG_FILE` → `~/.claude/glm-statusline-config.json`, `~` expanded). Also exports `debugLog` (stderr, gated on `GLM_STATUSLINE_DEBUG=1`) — shared by the orchestrator, status-cache, and monitor-api.
+**2. Shared library (`lib/`)** — dependency layering is acyclic: file-io → {status-cache, transcript-stats, model-mapping} → {quota-parsing, monitor-api, session-metrics} → orchestrator.
+- `lib/display-fields.js` — the canonical field set, order, and grouping. `DISPLAY_FIELDS` (`['plan','5h','mcp','context','model','effort','session','speed','day','30d']`) is the single source of truth for ordering and is always rendered in full (there is no field selection). `FIELD_GROUPS` + `groupRows()` (same file) partition the fields into category rows — see [Layout](#layout-grouped-rows-auto-merge).
+- `lib/file-io.js` — the shared file-I/O primitives used by **both** the orchestrator and the installer (they used to carry duplicate same-named copies). `readJsonFile(path, {fallback, throwOnParse, onError})` unifies the two deliberately different error contracts: the status line passes nothing (any error silently falls back to `null` — it must never crash Claude Code; core wraps it as `readJsonSafe` to add the debug log) while the installer passes `{fallback: {}, throwOnParse: true}` (corrupt settings must throw `Cannot parse <path>`). `writeJsonFile(path, value, {atomic, newline, swallowErrors, onError})` backs `saveCache` (`atomic: true` temp+rename) and the installer's settings writes (`newline: true`, errors rethrow). `forEachTranscriptLine(path, visit)` is the transcript-JSONL walker that owns the `message.id` dedup protocol (see the Transcript usage dedup invariant). `expandHome` + `configFilePath(env)` single-source the legacy config-file path (`GLM_STATUSLINE_CONFIG_FILE` → `~/.claude/glm-statusline-config.json`, `~` expanded) — the status line no longer reads it; the installer's `uninstall` uses it to clean the file up. Also exports `debugLog` (stderr, gated on `GLM_STATUSLINE_DEBUG=1`) — shared by the orchestrator, status-cache, and monitor-api.
 - `lib/statusline-format.js` — rendering primitives: `renderBar` (the `░▒▓█` shaded bar, ~24 steps), `wrapSegments` + `displayLength` (terminal-width auto-wrap that correctly counts CJK chars and the `░▒▓█` block chars as width-2), `mergeRows` (merges adjacent category rows whose combined width fits one terminal line), `formatTokens`, `clampPercent`, `parseResetTime`, `formatSpeed` (its `<1 → '--'` threshold is mirrored by literal value in `resolveSpeed`'s `heldUsable`), plus the time/date formatters used by the fields and `--plan-details` (`formatTimeHHmm`, `formatResetHHmm`, `formatResetMMDD`, `formatDateMMDD`, `formatLocalDateTime`, `formatAge`).
 - `lib/status-cache.js` — the shared-cache layer: `CACHE_FILE` (module-scope `GLM_STATUSLINE_CACHE_FILE` override) + the TTL constants, `loadCache`/`saveCache` (atomic via file-io)/`commitCache` (the `(cache, mark)` contract — see the one-read-one-write invariant)/`isFresh` (default `ttl = CACHE_TTL_MS`)/`pruneContextCache`/`pruneSpeedCache`.
 - `lib/transcript-stats.js` — usage/token extractors (`tokenTotalFromUsage/Object`, `outputTokensFromUsage/Object`) and the two JSONL readers `readJsonlTokenStats`/`readJsonlOutputStats`, thin visitors over `forEachTranscriptLine`.
@@ -49,21 +49,18 @@ Two layers; read top-down. (The core used to live at the repo root with `bin/glm
 - `lib/monitor-api.js` — the API client: `httpJson` (zero-dep GET JSON), `API_TIMEOUT_MS` (module-scope `GLM_STATUSLINE_TIMEOUT_MS`), `fetchQuota(env, cache, mark)` / `fetchModelUsage(env, period, cache, mark)` with the `cache = cache || loadCache()` self-managed fallback, `normalizeBaseRoot` (exported — `renderPlanDetails` uses it too), `formatDateTimeForMonitorApi`.
 - `lib/model-mapping.js` — `getClaudeModelRaw`, `getEffortLevel`, `mapClaudeModelToGlm`, `beautifyModelName` (pure; env threaded in).
 - `lib/session-metrics.js` — per-session metrics: `getContextInfo`, `resolveContextPercent` (flicker fix), `anchoredAverage`, `resolveSpeed` (reset re-seed, anchored average, idle resilience — all invariant comment blocks live here), plus private `DEFAULT_CONTEXT_WINDOW`/`SPEED_MIN_DENOM_S`.
-- `lib/interactive-configure.js` — the `/glm-statusline:configure` field-selector UI (checklist + preview + instant save; non-TTY fd-0 and TTY readline paths). `renderPreview` stays in the installer and is injected as a callback (`configure(args, { renderPreview })`); its `baseConfigFromFile()` throwing read precedes any write so a corrupt config is never silently overwritten.
 
 **Plugin packaging:** `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` (local marketplace `bingqiangzhou-tools`, `source: "./"`). The version string in `package.json`, `plugin.json`, and `marketplace.json` **must stay identical** — `test.js` asserts all three match and also asserts no version number is hardcoded in the verifier itself.
 
-**Skills (`skills/`):** `install`, `configure`, `plan-details`, `uninstall` → `/glm-statusline:*` commands. Each `SKILL.md` just runs a `bin/` command. They carry `disable-model-invocation: true`; `configure` is interactive-only and rejects arguments.
+**Skills (`skills/`):** `install`, `plan-details`, `uninstall` → `/glm-statusline:*` commands. Each `SKILL.md` just runs a `bin/` command. They carry `disable-model-invocation: true`.
 
 ## Layout (grouped rows, auto-merge)
 
-The status line uses a single layout: grouped category rows with automatic row merging. There is no single-line layout anymore; a `layout` key left in a config file is silently ignored (`readStatusConfig` returns only `configPath`/`display`/`maxWidth`).
+The status line uses a single layout: grouped category rows with automatic row merging, rendering every field. There is no single-line layout and no field selection; the status line reads no config file at all (a leftover `~/.claude/glm-statusline-config.json` from the removed selector is ignored entirely and `uninstall` deletes it).
 
-- Fields are partitioned into fixed category rows by `FIELD_GROUPS` in `lib/display-fields.js` (group order = on-screen line order; within a row, `DISPLAY_FIELDS` canonical order applies). `groupDisplay(display)` does the partition. Current rows: row 1 `model`/`effort`/`speed`, row 2 `context`/`session`/`day`/`30d`, row 3 `plan`/`5h`/`mcp`. Empty rows are skipped; `speed` is a normal segment in row 1 (no trailing-line special case).
+- All fields are partitioned into fixed category rows by `FIELD_GROUPS` in `lib/display-fields.js` (group order = on-screen line order; within a row, `DISPLAY_FIELDS` canonical order applies). `groupRows()` does the partition. Current rows: row 1 `model`/`effort`/`speed`, row 2 `context`/`session`/`day`/`30d`, row 3 `plan`/`5h`/`mcp`. `speed` is a normal segment in row 1 (no trailing-line special case).
 - After partitioning, `mergeRows(rows, maxWidth)` (in `lib/statusline-format.js`) greedily merges adjacent rows — rows are atomic units, never split across lines to interleave with another row — while the combined width (`segmentsWidth`, separators included, CJK/block chars width-2) fits `maxWidth`. A wide terminal can therefore render 2 rows or even 1; a row wider than the terminal still wraps within itself via `wrapSegments`. When `maxWidth` is unknown (≤0) no merging happens.
-- On-screen field order is always group order + canonical order; the `display` config only decides *which* fields appear, not their order.
-
-`/glm-statusline:configure` has no layout toggle — numbers toggle fields, `q` finishes.
+- On-screen field order is always group order + canonical order.
 
 ## Critical invariants (don't break these)
 
@@ -84,9 +81,9 @@ The GLM / Z.ai monitor API has **no fixed schema** — `test/fixtures/*.json` ar
 ## Adding a display field
 
 Touches these places, in order:
-- `lib/display-fields.js` — add to `DISPLAY_FIELDS` + `FIELD_LABELS`, and place it in the right `FIELD_GROUPS` row so it lands on the correct grouped-layout line.
+- `lib/display-fields.js` — add to `DISPLAY_FIELDS`, and place it in the right `FIELD_GROUPS` row so it lands on the correct grouped-layout line.
 - the `fields` map in `renderStatusLine` (`bin/glm-statusline.js`).
-- `README.md` — the field table, the "字段数据来源（每项怎么来的）" subsection, and the configure / layout examples.
+- `README.md` — the field table and the "字段数据来源（每项怎么来的）" subsection.
 - a new assertion in `test/test.js`.
 
 At release time, also add the entry to `CHANGELOG.md` — it is the **sole changelog, Chinese-only** (the English file was removed; `CHANGELOG.zh.md` was renamed into `CHANGELOG.md`). Note `test.js` also asserts README content (must contain `兼容式解析`, `test/fixtures`, `lib/`, etc.) and forbids machine-specific absolute paths in docs — README edits can break the build.

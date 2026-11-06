@@ -184,7 +184,7 @@ Claude Code 会监听已存在的 skill 目录，`SKILL.md` 修改可在当前 s
 - 带 supporting files 的复杂 skill
 - 带 `context: fork` 的隔离 skill
 
-本项目已经有 `/glm-statusline:install`、`/glm-statusline:configure`、`/glm-statusline:uninstall` 和 `/glm-statusline:plan-details` 四个插件 skill，可以继续扩展出 `/glm-statusline:diagnose`。
+本项目已经有 `/glm-statusline:install`、`/glm-statusline:uninstall` 和 `/glm-statusline:plan-details` 三个插件 skill，可以继续扩展出 `/glm-statusline:diagnose`。
 
 ### 3. Subagents
 
@@ -354,9 +354,8 @@ Monitors 适合“Claude 应该被动知道外部状态变化”的场景。它�
    - 检查 Node 版本、插件安装位置、`~/.claude/settings.json`、GLM env、API 连通性、缓存文件。
    - 输出可复制的诊断报告。
 
-2. 增强 `/glm-statusline:configure`
-   - 当前已经支持无参数进入字段选择界面，每次 toggle 后保存配置并打印预览。
-   - 后续可以继续扩展为交互式生成 GLM/Z.ai `env` 配置。
+2. 交互式生成 GLM/Z.ai `env` 配置的 skill
+   - 引导用户填写 `ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`、`ANTHROPIC_DEFAULT_*_MODEL` 并写入 settings。
    - 支持国内 `open.bigmodel.cn` 和国际 `api.z.ai`。
 
 3. 更独立的 `/glm-statusline:preview`

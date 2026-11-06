@@ -1,10 +1,10 @@
 # GLM StatusLine · Claude Code 状态栏插件
 
-**GLM StatusLine** 是一个 Claude Code 状态栏插件，在 Claude Code 底部显示 GLM / Z.ai 的用量：5 小时额度、MCP/tools 额度、上下文占比、会话 token、当天 / 30 天用量、映射后的模型名、effort 等级、输出速度等。支持交互式选择字段、终端宽度自适应换行，以及单行 / 分组两种布局。
+**GLM StatusLine** 是一个 Claude Code 状态栏插件，在 Claude Code 底部显示 GLM / Z.ai 的用量：5 小时额度、MCP/tools 额度、上下文占比、会话 token、当天 / 30 天用量、映射后的模型名、effort 等级、输出速度等。全部字段固定显示，按类别分行，终端宽度自适应换行与合并。
 
 它不是 GLM、Z.ai 或 Claude Code 的官方插件，只是一个个人实验项目。
 
-> **注意**：本项目无任何外部依赖，全部使用 Node.js 标准库（`fs`、`path`、`os`、`http`、`https`、`url`、`child_process`、`readline`、`assert`）。
+> **注意**：本项目无任何外部依赖，全部使用 Node.js 标准库（`fs`、`path`、`os`、`http`、`https`、`url`、`child_process`、`assert`）。
 
 > 仓库同时附带 11 篇 Claude Code 插件系统学习笔记（`notes/` 目录），以本插件为完整实践案例，作为次要内容放在[文末附录](#claude-code-插件系统学习笔记)。
 
@@ -13,7 +13,7 @@
 这个仓库同时包含三类内容，阅读时建议区分：
 
 - **官方文档事实**：Claude Code 插件、skill、status line、marketplace 等机制，来自 README 底部列出的 Claude Code 官方文档。
-- **本项目实现选择**：比如稳定 launcher、交互式字段选择、缓存文件位置，是为了让这个 GLM StatusLine 插件更容易安装、更新和学习。
+- **本项目实现选择**：比如稳定 launcher、固定全显的字段布局、缓存文件位置，是为了让这个 GLM StatusLine 插件更容易安装、更新和学习。
 - **GLM / Z.ai API 兼容式解析**：`/api/monitor/usage/quota/limit` 和 `/api/monitor/usage/model-usage` 的返回结构可能随服务调整而变化。脚本会根据多种字段名做兼容式解析，测试中的 `test/fixtures/` 提供的是当前实现用来验证解析逻辑的样例，不代表官方固定 schema。
 
 ---
@@ -34,7 +34,7 @@ GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░�
 
 进度条使用渐变字符（`░▒▓█`），每个格子有 4 级灰度，共 24 步（约 4% 一级），视觉上无间隙。
 
-状态栏默认显示下方全部字段；在 `/glm-statusline:configure` 里自定义后，只显示所选字段。
+状态栏固定显示下方全部字段，没有字段选择配置。
 
 支持的全部字段：
 
@@ -47,11 +47,9 @@ GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░�
 | `model` | Claude Code 当前模型映射后的 GLM 模型名 |
 | `effort` | 当前推理 effort 等级（`low` / `medium` / `high` / `xhigh` / `max`，来自 Claude Code `effort.level`） |
 | `session` | 当前会话累计 token 数 |
-| `speed` | 输出速度：`Speed <当前> t/s · Avg <会话均值> t/s`。并入所在分组行（与 `model`、`effort` 同行）。当前速度 = 输出 token 增量 ÷ API 耗时增量，空闲时保持上次读数；拿不到可用瞬时读数时（例如缓存被并发写坏、基线丢失）回落到会话平均速度，避免卡在 `--`；平均速度 = 自本会话首次观测以来的吞吐（锚定首 tick 的输出增量 ÷ API 耗时增量），以抵消 `/clear` 后 `cost.total_api_duration_ms` 带过来的旧 API 时间、不被压低。默认显示（可在 configure 中移除） |
+| `speed` | 输出速度：`Speed <当前> t/s · Avg <会话均值> t/s`。并入所在分组行（与 `model`、`effort` 同行）。当前速度 = 输出 token 增量 ÷ API 耗时增量，空闲时保持上次读数；拿不到可用瞬时读数时（例如缓存被并发写坏、基线丢失）回落到会话平均速度，避免卡在 `--`；平均速度 = 自本会话首次观测以来的吞吐（锚定首 tick 的输出增量 ÷ API 耗时增量），以抵消 `/clear` 后 `cost.total_api_duration_ms` 带过来的旧 API 时间、不被压低 |
 | `day` | 当天 GLM / Z.ai token 用量 |
 | `30d` | 近 30 天 GLM / Z.ai token 用量 |
-
-默认（未配置 `display` 或配置无效）显示上表全部字段；配置了 `display` 则按列表显示。
 
 #### 运行流程（从安装到每一帧）
 
@@ -90,10 +88,10 @@ transcript JSONL（按 message.id 去重）┼─→ speed（当前速度=输出
  └─ 累计 token ──→ session           │
 GLM / Z.ai monitor API（60s 缓存）
  ├─ /api/monitor/usage/quota/limit ──兼容式解析──→ plan / 5h / mcp（每帧尝试，缓存兜底）
- └─ /api/monitor/usage/model-usage ──→ day / 30d（仅所选字段包含时才请求）
+ └─ /api/monitor/usage/model-usage ──→ day / 30d（始终请求）
 
 fields 字段表
- → groupDisplay     按固定分组归入 3 个类别行（lib/display-fields.js；空分组整行省略）
+ → groupRows        按固定分组归入 3 个类别行（lib/display-fields.js）
  → mergeRows        相邻行宽度之和 ≤ 终端宽度时贪心合并成更少行
  → wrapSegments     仍超宽的行在字段边界内换行（CJK 与 ░▒▓█ 按 2 列计）
  → 输出 1–3 行
@@ -107,33 +105,15 @@ fields 字段表
 
 #### 布局（分组多行 + 自动合并）
 
-状态栏统一使用分组多行布局（没有单行布局；配置文件里残留的 `layout` 键会被忽略）。字段按固定分组归入三行，屏幕上的顺序以分组为准：
+状态栏统一使用分组多行布局，固定渲染全部字段（没有单行布局，也没有字段选择配置；旧配置文件里残留的 `layout` / `display` 键会被完全忽略）。字段按固定分组归入三行，屏幕上的顺序以分组为准：
 
 - 第 1 行：`model`、`effort`、`speed`
 - 第 2 行：`context`、`session`、`day`、`30d`
 - 第 3 行：`plan`、`5h`、`mcp`
 
-没有选中任何字段的分组会整行省略；`speed` 并入第 1 行（与 `model`、`effort` 同行）。
+`speed` 并入第 1 行（与 `model`、`effort` 同行）。
 
 **行自动合并**：相邻两行（甚至三行）的总显示宽度不超过终端宽度（`COLUMNS` 环境变量，默认 80）时，会自动合并成一行——宽终端上可能只显示两行甚至一行。合并以整行为单位、按行序贪心累积，绝不把某一行拆散与别行穿插；某一行自身超过终端宽度时，仍在字段边界自动换行。宽度计算正确处理 CJK 字符和 `░▒▓█` 渐变字符（按 2 列计）。
-
-配置示例（`display` 只决定选哪些字段，不影响行序与行内顺序）：
-
-```json
-{
-  "display": ["plan", "5h", "mcp", "context", "session", "model", "day", "30d", "effort", "speed"]
-}
-```
-
-效果（终端较窄时为三行）：
-
-```text
-Model glm-4.6 │ Effort high │ Speed 100 t/s · Avg 96 t/s
-Context █▒░░░░░░ 12% │ Session 160K │ Day 42.8M │ 30D 5.98B
-GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14
-```
-
-终端足够宽时，相邻行自动合并（例如第 1、2 行并成一行，第 3 行保持独立；更宽则三行全并）。
 
 #### 字段数据来源（每项怎么来的）
 
@@ -144,7 +124,7 @@ GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░�
 - `plan`：套餐名，取自 `/api/monitor/usage/quota/limit`。接口没返回时用环境变量 `GLM_STATUSLINE_PLAN` 兜底，仍没有则显示 `GLM`。
 - `5h`：5 小时额度使用率与重置时间，从 quota/limit 接口解析。
 - `mcp`：MCP/tools 额度使用率与窗口到期日期（`@MM-DD`），从 quota/limit 接口解析。
-- `day`、`30d`：当天 / 近 30 天 token 用量，取自 `/api/monitor/usage/model-usage`。**只有选了 `day` 或 `30d` 才会请求这个接口**（成本控制）；结果按 60 秒（`GLM_STATUSLINE_CACHE_TTL_MS`）缓存。
+- `day`、`30d`：当天 / 近 30 天 token 用量，取自 `/api/monitor/usage/model-usage`。两个字段恒显，因此每帧都会尝试请求这个接口；结果按 60 秒（`GLM_STATUSLINE_CACHE_TTL_MS`）缓存，实际请求频率受缓存约束。
 
   由于 monitor API 没有固定 schema，`5h`/`mcp`/`plan` 靠「兼容式解析」拿到：脚本递归遍历响应、按多种候选字段名匹配，并把每个 limit 对象按关键词归类成 5H / MCP / weekly。接口改字段名时通常只需扩展候选名单。
 
@@ -176,7 +156,7 @@ GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░�
 ~/.claude/glm-statusline-cache.json
 ```
 
-默认缓存时间是 60 秒，可以通过 `GLM_STATUSLINE_CACHE_TTL_MS` 调整。缓存与状态栏字段选择联动：只有配置了 `day` 或 `30d` 字段时，才会请求 model-usage API。默认显示包含这两个字段，因此默认也会请求该 API（受上述 60 秒缓存约束）。
+默认缓存时间是 60 秒，可以通过 `GLM_STATUSLINE_CACHE_TTL_MS` 调整。`day` / `30D` 字段恒显，因此每帧都会尝试请求 model-usage API（受上述 60 秒缓存约束）。
 
 ### 3. 详细套餐信息命令
 
@@ -210,59 +190,19 @@ Day: 42.8M tokens
 API: api.z.ai · key configured · cache 12s ago
 ```
 
-### 4. 显示配置与预览
+### 4. 安装与卸载 skill
 
-插件提供 `/glm-statusline:configure`，用于进入一个选择界面，逐个选择状态栏显示哪些字段。每次选择都会保存配置，并立即打印选择后的预览效果：
-
-```text
-/glm-statusline:configure
-```
-
-配置会写入：
-
-```text
-~/.claude/glm-statusline-config.json
-```
-
-预览会直接输出在当前 Claude Code 对话中，例如（全新配置默认勾选全部字段）：
-
-```text
-Select fields to show. Type a number to toggle it, q to finish.
-1. [x] plan
-2. [x] 5h quota
-3. [x] mcp/tools
-4. [x] context
-5. [x] model
-6. [x] effort level
-7. [x] session tokens
-8. [x] output speed
-9. [x] day tokens
-10. [x] 30d tokens
-
-Preview:
-Model glm-4.6 │ Effort high │ Speed 100 t/s · Avg 96 t/s
-Context █▒░░░░░░ 12% │ Session 160K │ Day 42.8M │ 30D 5.98B
-GLM Lite │ 5H ██▒░░░░░ 22% @18:30 │ MCP ▓░░░░░░░ 8% @06-14
-```
-
-配置只有一种主路径：无参数运行 `/glm-statusline:configure`，输入数字切换字段，每次切换都会自动保存并预览。
-真实底部状态栏会在下一次 Claude Code 交互或 refresh interval 后刷新。
-字段按三个类别行显示；相邻行的总宽度不超过终端宽度时会自动合并成一行（见上文「布局」一节），某一行自身超宽时则在字段边界自动换行，避免后面的百分比被挤出可见区域。换行计算正确处理了 CJK 字符和 `░▒▓█` 渐变字符的显示宽度。
-
-### 5. 安装与卸载 skill
-
-插件内置四个 Claude Code skill：
+插件内置三个 Claude Code skill：
 
 - `/glm-statusline:install`：启用状态栏。
-- `/glm-statusline:configure`：选择显示字段并打印预览。
 - `/glm-statusline:uninstall`：移除本插件管理的状态栏配置。
 - `/glm-statusline:plan-details`：显示详细套餐和用量信息。
 
 安装脚本会写入 `~/.claude/settings.json` 的 `statusLine` 字段，并在修改前自动备份已有 settings 文件。
 
-卸载时只会移除本插件管理的 status line。如果你已经换成了别的 status line，它不会强行删除用户自己的配置。
+卸载时只会移除本插件管理的 status line。如果你已经换成了别的 status line，它不会强行删除用户自己的配置。卸载还会顺带清理旧版本遗留的 `~/.claude/glm-statusline-config.json`（字段选择配置文件，现已不再使用）。
 
-### 6. 稳定 launcher
+### 5. 稳定 launcher
 
 插件安装后会写入一个稳定入口：
 
@@ -278,7 +218,7 @@ claude plugin update glm-statusline@bingqiangzhou-tools
 
 稳定 launcher 会自动寻找最新安装版本的 `bin/glm-statusline.js`（每次渲染现场解析，完整链路见上文[「运行流程」](#运行流程从安装到每一帧)）。
 
-### 7. 本地验证
+### 6. 本地验证
 
 项目提供了验证脚本：
 
@@ -292,12 +232,11 @@ npm test
 - package、plugin、marketplace 版本是否一致。
 - `bin/`、`skills/`、`docs/` 必要文件是否存在。
 - status line 在模拟 Claude Code stdin 下能正常输出。
-- 配置文件可以控制状态栏显示字段。
-- 状态栏会根据终端宽度自动换行。
-- `--preview` 可以打印选择后的状态栏预览。
+- 遗留的 display 配置文件被完全忽略（状态栏固定全显）。
+- 状态栏会根据终端宽度自动换行与合并。
+- `--preview` 可以打印状态栏预览。
 - `--plan-details` 能展示 5H、MCP、Weekly、Day、30D 等信息。
-- configure 命令可以写入配置文件。
-- install / uninstall 是否正确写入和移除 settings。
+- install / uninstall 是否正确写入和移除 settings，uninstall 是否清理遗留配置文件。
 - 稳定 launcher 是否能正常工作。
 
 ## 安装方法
@@ -341,7 +280,7 @@ pwd
 ```
 
 启用后，Claude Code 下一次交互时状态栏就会刷新。
-安装输出会提示你运行 `/glm-statusline:configure`，用交互式选择界面配置状态栏显示哪些内容。
+状态栏固定显示全部字段，无需任何配置。
 
 ### 4. 配置 GLM / Z.ai 环境变量
 
@@ -370,38 +309,13 @@ pwd
 }
 ```
 
-### 5. 选择显示字段并预览
-
-```text
-/glm-statusline:configure
-```
-
-支持字段：
-
-- `plan`：套餐名。
-- `5h`：5 小时额度。
-- `mcp`：MCP/tool 额度。
-- `context`：上下文占用。
-- `model`：Claude Code 当前模型映射后的 GLM 模型名。
-- `effort`：当前推理 effort 等级（Claude Code `effort.level`，模型不支持时显示 `--`）。
-- `session`：当前会话 token。
-- `speed`：输出速度（当前 + 会话平均 tokens/sec）；与 model/effort 同行。
-- `day`：当天 token。
-- `30d`：近 30 天 token。
-
-如果只想保留最简洁显示：
-
-```text
-运行 /glm-statusline:configure 后，只保留 5h、mcp、session、day 四项为选中状态，然后输入 q 结束。
-```
-
-### 6. 查看详细用量
+### 5. 查看详细用量
 
 ```text
 /glm-statusline:plan-details
 ```
 
-### 7. 卸载状态栏
+### 6. 卸载状态栏
 
 ```text
 /glm-statusline:uninstall
@@ -480,7 +394,7 @@ Claude Code 官方文档：
 
 项目里参考和使用到的运行时能力：
 
-- Node.js 标准库：`fs`、`path`、`os`、`http`、`https`、`url`、`child_process`、`readline`、`assert`。
+- Node.js 标准库：`fs`、`path`、`os`、`http`、`https`、`url`、`child_process`、`assert`。
 - Claude Code `statusLine`：通过 stdin 接收当前会话 JSON（包含 `model`、`context_window`、`effort`、`transcript_path`、`workspace` 等字段），通过 stdout 输出状态栏文本。其中 `effort.level` 需要 Claude Code v2.1.119+，`context_window.used_percentage` 在会话开始或 `/compact` 后可能为 `null`（此时状态栏会沿用该会话上一次的已知值，避免闪成 0%）。
 - Claude Code plugin：用 `.claude-plugin/plugin.json` 描述插件元信息。
 - Claude Code local marketplace：用 `.claude-plugin/marketplace.json` 让本地目录可以被 `/plugin marketplace add` 添加。
@@ -496,14 +410,13 @@ CCStatusline/
 │   └── marketplace.json             # 本地 marketplace 清单
 ├── bin/
 │   ├── glm-statusline.js            # 状态栏核心编排脚本（入口即实现，引用 ../lib/）
-│   └── glm-statusline-install.js    # 安装/配置/卸载 CLI
+│   └── glm-statusline-install.js    # 安装/卸载 CLI
 ├── docs/
 │   ├── claude-code-plugin-build-guide.md      # 插件构建过程文档
 │   └── claude-code-skills-and-extensions-guide.md  # Skill 与扩展能力文档
 ├── lib/
-│   ├── display-fields.js            # 状态栏字段定义与配置归一化
-│   ├── file-io.js                   # 共享文件读写：JSON 读取/写入（原子写）、transcript JSONL 遍历去重、配置路径解析、调试日志
-│   ├── interactive-configure.js     # 交互式配置界面（勾选清单 + 预览 + 即时保存）
+│   ├── display-fields.js            # 状态栏字段定义与分组行切分
+│   ├── file-io.js                   # 共享文件读写：JSON 读取/写入（原子写）、transcript JSONL 遍历去重、遗留配置路径解析、调试日志
 │   ├── model-mapping.js             # Claude 模型名 → GLM 模型名映射 + effort 档位读取
 │   ├── monitor-api.js               # 监控 API 客户端：配额/用量抓取（60s 缓存 + 多级回退）
 │   ├── quota-parsing.js             # 兼容式解析（纯函数）：quota/limit 与 model-usage 响应归一
@@ -527,7 +440,6 @@ CCStatusline/
 │       ├── old-第一篇-单文件状态栏笔记.md
 │       └── old-第二篇-如何写一个Claude-Code插件.md
 ├── skills/
-│   ├── configure/SKILL.md           # /glm-statusline:configure
 │   ├── install/SKILL.md             # /glm-statusline:install
 │   ├── plan-details/SKILL.md        # /glm-statusline:plan-details
 │   └── uninstall/SKILL.md           # /glm-statusline:uninstall
@@ -543,7 +455,6 @@ CCStatusline/
 
 - 增加 README 截图，展示状态栏和 `/glm-statusline:plan-details` 的实际效果。
 - 增加 `/glm-statusline:diagnose`，自动检查 API key、base URL、settings、缓存文件和 status line command。
-- 增强 `/glm-statusline:configure`，继续加入 GLM/Z.ai `env` 的交互式配置。
 - 把插件发布到更正式的 marketplace，而不只是本地路径安装。
 - 给 quota API 返回结构补更多样例测试，避免接口字段变化后解析失效。
 - 给 README 增加常见问题，比如状态栏不刷新、显示 0%、API key 缺失、旧版本 launcher 残留等。
