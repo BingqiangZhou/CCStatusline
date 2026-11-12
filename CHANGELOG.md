@@ -2,6 +2,10 @@
 
 > 本文件是唯一的更新日志（仅中文，原英文版已移除）。CI 的 Release 正文取自本文件对应版本条目。
 
+## 1.3.1 - 2026-11-12
+
+- 修复了 Homebrew 升级 node 后状态栏静默消失的问题。安装器写入 `statusLine.command` 的 node 路径直接取 `process.execPath`，在 macOS + Homebrew 下它会解析成带版本号的 `Cellar/node/<version>/bin/node` 实路径；下次 `brew upgrade node` 清掉旧版本目录后，该命令执行即失败，状态栏不再渲染（实测：node 26.13.0_2 升到 26.13.1 后旧目录被删，命令退出码 127）。现在安装器优先选用 `PATH` 中解析到同一二进制的稳定入口（如 `/opt/homebrew/bin/node`，升级后 symlink 始终指向当前版本），`PATH` 中找不到匹配时才回退 `process.execPath`。已受影响的用户重新运行一次安装（`/glm-statusline:install`）即可写入稳定路径。
+
 ## 1.3.0 - 2026-11-06
 
 - 移除了「选择显示字段」功能：状态栏现在固定渲染全部 10 个字段（固定分组布局），没有 `display` 配置，也不再读取任何配置文件。旧版本遗留的 `~/.claude/glm-statusline-config.json` 会被完全忽略，`uninstall` 时顺带清理。
