@@ -531,6 +531,42 @@ function verifyInstallerWorkflow({ tempDir }) {
   assert.ok(!fs.existsSync(unmanagedConfigFile), '--force uninstall should clean up the legacy config file');
 }
 
+// 安装器写入的 node 路径必须是稳定入口：PATH 里存在指向同一二进制的 symlink 时
+//（如 Homebrew 的 /opt/homebrew/bin/node），优先用它而非版本化的 process.execPath
+//（macOS 下常解析成 Cellar/node/<version>/bin/node，brew upgrade 后该路径即失效）。
+function verifyStableNodePath({ tempDir }) {
+  // symlink 创建在 Windows 需要特权；本场景仅 POSIX
+  if (process.platform === 'win32') return;
+
+  // 临时 bin 目录放一个指向真实 node 二进制的稳定 symlink（与子进程 execPath 同一文件）
+  const stableBin = path.join(tempDir, 'stable-bin');
+  fs.mkdirSync(stableBin, { recursive: true });
+  const stableNode = path.join(stableBin, 'node');
+  fs.symlinkSync(fs.realpathSync(process.execPath), stableNode, 'file');
+
+  // print-command：PATH 首位是 stableBin → 命令必须选用稳定 symlink 而非 execPath
+  const printed = run(process.execPath, ['bin/glm-statusline-install.js', 'print-command'], {
+    env: {
+      PATH: `${stableBin}${path.delimiter}${process.env.PATH || ''}`,
+    },
+  });
+  assert.strictEqual(printed.status, 0, printed.stderr);
+  assert.ok(
+    printed.stdout.includes(`'${stableNode}'`),
+    `command should prefer the stable PATH node '${stableNode}', got: ${printed.stdout.trim()}`
+  );
+
+  // PATH 中没有指向同一二进制的候选 → 回退 process.execPath（保持原行为）
+  const fallback = run(process.execPath, ['bin/glm-statusline-install.js', 'print-command'], {
+    env: { PATH: tempDir },
+  });
+  assert.strictEqual(fallback.status, 0, fallback.stderr);
+  assert.ok(
+    fallback.stdout.includes(`'${process.execPath}'`),
+    `command should fall back to execPath '${process.execPath}', got: ${fallback.stdout.trim()}`
+  );
+}
+
 // 坏文件钉住 lib/file-io.js readJsonFile 为安装器携带的刻意读取契约：必须响亮地失败
 //（用户需要看到自己坏掉的 settings），绝不静默忽略。这是既有代码的行为 pin，
 // 任何对读取器的重构都必须保持它为绿。
@@ -967,6 +1003,7 @@ async function main() {
   await verifyApiBackedStatusLine(context);
   await verifyDebugLogging(context);
   verifyInstallerWorkflow(context);
+  verifyStableNodePath(context);
   verifyCorruptFilesAreHandled(context);
   await verifyEffortAndContextFix(context);
   await verifyTokenOutputSpeed(context);

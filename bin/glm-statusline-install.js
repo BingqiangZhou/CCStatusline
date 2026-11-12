@@ -51,9 +51,43 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
+// 解析写入命令的 node 路径：优先取 PATH 中指向同一二进制的稳定入口（如 Homebrew 的
+// /opt/homebrew/bin/node），而不是版本化的 process.execPath —— macOS 下后者常解析成
+// Cellar/node/<version>/bin/node，brew upgrade 删掉旧版本目录后该路径即失效，
+// statusLine 会静默消失。找不到稳定入口时回退 process.execPath（保持原行为）。
+function stableNodePath() {
+  try {
+    // 真实二进制位置（所有候选与之比对）
+    const realExec = fs.realpathSync(process.execPath);
+    // 在 PATH 各目录中查找同名可执行（basename 自动适配 Windows 的 node.exe）
+    const base = path.basename(process.execPath);
+    const dirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
+    // 第一个命中候选（可能就是 execPath 所在目录，稳定性不增不减）
+    let firstMatch = '';
+    for (const dir of dirs) {
+      const candidate = path.join(dir, base);
+      try {
+        // 存在、是文件、且解析到同一二进制 → 命中
+        if (fs.statSync(candidate).isFile() && fs.realpathSync(candidate) === realExec) {
+          // 与 execPath 不同的路径更稳定（避开 PATH 里也列了版本化目录的情况），直接采用
+          if (candidate !== process.execPath) return candidate;
+          if (!firstMatch) firstMatch = candidate;
+        }
+      } catch (_) {
+        // 候选不存在/不可读 → 继续下一个目录
+      }
+    }
+    // 没有更稳的候选：有自命中用自命中，否则原样回退
+    return firstMatch || process.execPath;
+  } catch (_) {
+    // realpath 异常等场景 → 原样回退，绝不因路径解析失败阻断安装
+    return process.execPath;
+  }
+}
+
 // 构造 statusLine.command 字符串："node" "启动器路径"（各自安全转义）
 function statusLineCommand() {
-  return `${shellQuote(process.execPath)} ${shellQuote(STABLE_LAUNCHER_FILE)}`;
+  return `${shellQuote(stableNodePath())} ${shellQuote(STABLE_LAUNCHER_FILE)}`;
 }
 
 // 读 Claude settings JSON（文件不存在/为空返回空对象；解析失败抛错 —— 安装场景要让用户看到问题）
